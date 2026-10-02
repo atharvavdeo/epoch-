@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../api";
+import { Dock } from "../components/Dock";
 
 export default function Projects() {
   const qc = useQueryClient();
@@ -33,17 +34,21 @@ export default function Projects() {
 
   return (
     <div className="shell">
-      <div className="topbar"><h1>Retention review</h1><span className="muted">local • offline-capable</span></div>
-      <div className="grid">
+      <div className="header">
+        <span />
+        <div className="title"><h1>Retention review</h1><div className="sub">Local analysis · evidence you can check · runs offline</div></div>
+        <span />
+      </div>
+      <div className="home">
         <div className="card">
           <h2>Projects</h2>
           {projects.isLoading && <p className="muted">Loading…</p>}
           {projects.error && <p className="err">API not reachable. Start it: .venvs/api/Scripts/python.exe -m uvicorn apps.api.main:app --port 8765</p>}
           <div className="projects" style={{ marginTop: 10 }}>
             {projects.data?.items.map((p) => (
-              <div className="card" key={p.project_id} style={{ background: "var(--bg-inset)" }}>
+              <div className="inset" key={p.project_id} style={{ padding: 16 }}>
                 <h3>{p.title}</h3>
-                <div className="muted">{p.category} · {p.declared_language} · <span className={`pill ${p.state === "partial" ? "warn" : ""}`}>{p.state}</span></div>
+                <div className="muted">{p.category} · {p.declared_language} · <span className={`pill ${p.state === "partial" ? "amber" : "supported"}`}>{p.state}</span></div>
                 <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                   {p.runs.map((r) => (
                     <Link key={r.run_id} to={`/runs/${r.run_id}`}>
@@ -80,6 +85,7 @@ export default function Projects() {
           </div>
         </div>
       </div>
+      <Dock active="projects" />
     </div>
   );
 }

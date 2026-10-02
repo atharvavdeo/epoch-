@@ -58,6 +58,7 @@ export const api = {
   run: (id: string) => call<{ run: { run_id: string; status: string; model_profile: string; created_at: string;
     provenance: Record<string, unknown>; stages: { name: string; status: string; fingerprint: string | null }[] };
     asset: { duration_ms: number; original_name: string }; package_kind: string; missing_stages: Record<string, string>;
+    project: { project_id: string; title: string; category: string; declared_language: string } | null;
     proxy_artifact_id: string | null; coverage: Coverage[] }>(`/runs/${id}`),
   transcript: (id: string) => call<{ segments: Segment[] }>(`/runs/${id}/transcript`),
   timeline: (id: string) => call<{ risk: RiskBin[]; scenarios: Scenario[]; coverage: Coverage[]; chapters: Signal[];

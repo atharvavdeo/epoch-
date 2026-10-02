@@ -227,9 +227,12 @@ def get_run(run_id: str):
     with ENGINE.connect() as c:
         a = c.execute(select(db.assets).where(db.assets.c.asset_id == r.asset_id)).first()
         proxy = c.execute(select(db.artifacts).where(db.artifacts.c.run_id == run_id, db.artifacts.c.kind == "proxy")).first()
+        p = c.execute(select(db.projects).where(db.projects.c.project_id == r.project_id)).first()
     man = json.loads(r.manifest_json)
     run = json.loads(r.json)
     return {"run": run, "asset": json.loads(a.json), "package_kind": r.package_kind,
+            "project": {"project_id": p.project_id, "title": p.title, "category": p.category,
+                        "declared_language": p.declared_language} if p else None,
             "missing_stages": man["missing_stage_reasons"], "completed_stages": man["completed_stage_names"],
             "proxy_artifact_id": proxy.artifact_id if proxy else None,
             "coverage": read_jsonl(Path(r.dir), "coverage")}

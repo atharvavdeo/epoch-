@@ -1,7 +1,18 @@
 # HANDOFF — PS5 Retention Predictor, Phase 1 → next phases
 
 Written 2026-10-03 at commit `db430eb` (plus this file), on the Windows laptop where everything so far was built and run.
-**The next work happens on a MacBook M3, 16 GB RAM.** Read §0 and §3 before touching anything.
+> **Update (same day): the user cancelled the Mac move. All work continues on this Windows laptop.** §4 (Phase A) is kept only for reference and is NOT planned. Ignore Mac paths below; use `.venvs/<env>/Scripts/python.exe`.
+>
+> **Done since this file was first written (commit after `b5545e7`):**
+> - F40 speech rate now uses aligned word times (pauses excluded): 188–236 WPM on the test video.
+> - F52 filler density and F47 language-switch signals.
+> - F58 `cold_open` span kind.
+> - Near-exact quote snapping (recovered the 3:28 open loop).
+> - UI rebuilt to the design system: bundled Inter, Source Serif 4 and Noto Sans Devanagari; sticky player with a full-width timeline (chapters, finding markers in lanes, combined risk, playhead, current chapter); findings filters; accept/undo/dismiss/restore; an **Edit plan** tab with text/CSV export; a pipeline status strip; and a dock.
+> - The run API now returns the project title.
+> - Still NOT built: Evaluation page, chat panel, transcript correction, paraphrase repetition, OCR.
+
+Read §0 and §3 before touching anything.
 
 Reading order for the new machine:
 
