@@ -1,6 +1,6 @@
 # CLAUDE.md — working notes for this repo
 
-PS5 Retention Predictor, Phase 1 (Diagnose). Specs: `PLANNER/`. What was built and why: `ARCHITECTURE.md` (keep its pipeline diagram and decision log current after every major iteration).
+PS5 Retention Predictor, Phase 1 (Diagnose). **Start with `HANDOFF.md`** (state, dummies, next phases on the Mac). Specs: `PLANNER/`. What was built and why: `ARCHITECTURE.md` (keep its pipeline diagram and decision log current after every major iteration).
 
 ## Rules from the owner
 - Never push to GitHub unless asked. Commits: ≤100 words, past tense, human voice, author Kawaljeet Singh Bharaj. **No Co-Authored-By line, ever.**
