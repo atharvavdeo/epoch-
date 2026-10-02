@@ -1,0 +1,5 @@
+# OCR environment (local CPU). Isolated from torch per D06.
+paddlepaddle==3.3.1
+paddleocr==3.7.0
+pydantic==2.12.5
+Pillow>=11,<12

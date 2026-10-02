@@ -1,0 +1,13 @@
+# Controller + media environment (local). TRD §2 "Controller/media".
+av==15.1.0
+scenedetect==0.7.1
+numpy>=2.2,<2.3
+scipy>=1.15,<1.16
+# scenedetect 0.7.1 requires opencv-python; one cv2 provider only (lock revision R1).
+opencv-python>=4.11,<4.12
+Pillow>=11,<12
+soundfile>=0.13,<0.14
+pydantic==2.12.5
+httpx==0.28.1
+imageio-ffmpeg==0.6.0
+pytest>=8,<9

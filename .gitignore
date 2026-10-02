@@ -1,0 +1,31 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# environments and caches
+.venvs/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+node_modules/
+apps/web/dist/
+
+# generated data never belongs in git (see MODULES.md)
+epoch-data/
+*.retention.zip
+*.visualjob.zip
+*.visualresult.zip
+fixtures/generated/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# readable copies of results (regenerable)
+outputs/
+
+# build metadata from editable installs
+*.egg-info/

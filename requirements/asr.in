@@ -1,0 +1,14 @@
+# ASR / alignment / embedding environment (local, CPU FP32 per D16).
+torch==2.8.0
+torchaudio==2.8.0
+whisperx==3.8.6
+faster-whisper==1.2.1
+ctranslate2==4.6.0
+transformers==4.57.6
+huggingface-hub==0.36.0
+tokenizers==0.22.2
+sentence-transformers==5.1.2
+soundfile>=0.13,<0.14
+pydantic==2.12.5
+# ctranslate2 4.6.0 imports pkg_resources on Windows; setuptools>=81 removed it (lock revision R2).
+setuptools>=70,<81

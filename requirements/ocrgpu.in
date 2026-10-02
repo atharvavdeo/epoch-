@@ -1,0 +1,6 @@
+# OCR on the local RTX 3050 (same PP-OCRv5 models as locks/ocr.txt; GPU runtime only).
+# paddlepaddle-gpu 3.x wheels come from PaddlePaddle's official index, not PyPI.
+paddlepaddle-gpu==3.3.1
+paddleocr==3.7.0
+pydantic==2.12.5
+Pillow>=11,<12

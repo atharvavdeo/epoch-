@@ -1,0 +1,10 @@
+# Colab VLM environment (linux x86_64, CUDA 12.6 wheels). TRD §2 "VLM".
+torch==2.8.0
+torchvision==0.23.0
+transformers==5.7.0
+huggingface-hub==1.5.0
+accelerate==1.10.1
+tokenizers==0.22.2
+safetensors>=0.6,<0.7
+Pillow>=11,<12
+pydantic==2.12.5

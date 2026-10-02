@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epoch-retention"
+version = "0.1.0"
+description = "PS5 Retention Predictor: evidence-grounded drop-off diagnosis (Phase 1)."
+requires-python = ">=3.11,<3.12"
+# Dependencies are deliberately empty: each isolated environment is installed
+# from its own hashed lock in locks/*.txt (TRD §2, D06). This project is then
+# added with --no-deps so the same source tree is importable everywhere.
+dependencies = []
+
+[project.scripts]
+epoch = "pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["contracts*", "pipeline*", "apps*", "epoch_vlm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "slow: touches real media or real models; excluded from the quick suite",
+    "network: calls an external service",
+]
