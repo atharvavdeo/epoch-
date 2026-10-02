@@ -105,7 +105,7 @@ class CloserLook(_M):
 class ClipObservation(_M):
     clip_id: str
     frames_reviewed: int = Field(ge=0, le=64)
-    segments: list[Segment] = Field(min_length=1, max_length=4)
+    segments: list[Segment] = Field(min_length=1, max_length=8)  # descriptive; prompt asks for 1-3
     information_flow: InformationFlow
     speech_visual_relation: SpeechVisualRelation
     static_visual: StaticVisual

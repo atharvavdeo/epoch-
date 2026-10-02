@@ -31,6 +31,24 @@ from epoch_vlm.prompting import (build_messages, load_template, repair_messages,
                                   transcript_blob)
 from epoch_vlm.schema import extract_json, validate
 
+LABEL_KEYS = ("frames", "evidence_frames", "frame")
+
+
+def relabel(frames: list[dict]) -> list[dict]:
+    """Copies of the shown frames labelled contiguously in time order (F01..Fn, or R01.. for refinements)."""
+    return [{**f, "ref": f"{f['ref'][0]}{k + 1:02d}"} for k, f in enumerate(frames)]
+
+
+def remap_labels(obj, mapping: dict[str, str]):
+    """Translate display labels in a validated answer back to the job's frame refs."""
+    if isinstance(obj, dict):
+        return {k: ([mapping.get(x, x) for x in v] if k in LABEL_KEYS and isinstance(v, list)
+                    else mapping.get(v, v) if k in LABEL_KEYS and isinstance(v, str) else remap_labels(v, mapping))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [remap_labels(x, mapping) for x in obj]
+    return obj
+
 HEADROOM_GIB = 2.0
 LEAK_TOLERANCE_GIB = 0.25
 
@@ -135,7 +153,8 @@ class Runner:
     def _prepare_within_cap(self, clip: dict, frames: list[dict], token_cap: int, refine: dict | None):
         degraded = []
         while True:
-            msgs = build_messages(self.job, clip, frames, self.tpl, self.image, refine=refine)
+            shown = relabel(frames)
+            msgs = build_messages(self.job, clip, shown, self.tpl, self.image, refine=refine)
             prep = self.backend.prepare(msgs)
             if prep.input_tokens <= token_cap or len(frames) <= 4:
                 break
@@ -166,11 +185,15 @@ class Runner:
                 frames = select_frames({"frames": frames_pool}, cap)
                 msgs, prep, frames, deg = self._prepare_within_cap(clip, frames, token_cap, refine)
                 rec["degraded"] = sorted(set(rec["degraded"] + deg + (["oom_retry"] if attempt else [])))
+                # the model sees contiguous labels for exactly the frames shown (F01..Fn); gaps from frame
+                # selection made it cite unseen labels. Answers are mapped back to the job's frame refs.
+                to_pool = {d["ref"]: f["ref"] for d, f in zip(relabel(frames), frames)}
+                rec["label_map"] = to_pool
                 rec.update(frames_used=[f["ref"] for f in frames], frame_ids=[f["frame_id"] for f in frames],
                            input_tokens=prep.input_tokens, image_sizes=prep.image_sizes[:4] + (
                                [["...", len(prep.image_sizes)]] if len(prep.image_sizes) > 4 else []))
-                labels = [f["ref"] for f in frames]
-                assert set(labels) <= labels_all
+                assert {f["ref"] for f in frames} <= labels_all
+                labels = list(to_pool)
                 gen = self.backend.generate(prep, int(self.limits["max_new_tokens"]))
                 rec.update(raw_output=gen.text[:8000], output_tokens=gen.output_tokens, hit_token_limit=gen.hit_token_limit)
                 expected_id = refine["refine_id"] if refine else clip["clip_id"]
@@ -192,7 +215,7 @@ class Runner:
                         parsed, errors, dropped, notes = self._parse(gen2.text, expected_id, labels, clip)
                 rec.update(validation_errors=errors, dropped_items=dropped, parse_notes=notes)
                 if parsed is not None and not errors:
-                    rec.update(status="complete", parsed=parsed)
+                    rec.update(status="complete", parsed=remap_labels(parsed, to_pool))
                 else:
                     rec["error"] = {"code": "invalid_model_output", "message": "; ".join(errors)[:600], "retryable": False}
                 break
@@ -207,7 +230,7 @@ class Runner:
         rec["memory_after"] = self.backend.memory()
         return rec
 
-    def _parse(self, text: str, expected_id: str, labels: list[str], clip: dict):
+    def _parse(self, text: str, expected_id: str, labels: list[str], clip: dict):  # labels = display labels
         obj, notes = extract_json(text)
         if obj is None:
             return None, [notes.get("error", "unparseable output")], [], notes

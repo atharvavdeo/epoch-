@@ -12,6 +12,28 @@ Written 2026-10-03 at commit `db430eb` (plus this file), on the Windows laptop w
 > - The run API now returns the project title.
 > - Still NOT built: Evaluation page, chat panel, transcript correction, paraphrase repetition, OCR.
 
+
+> **Refocus (owner, 2026-10-03, later):**
+> 1. **Vision is ON HOLD** and becomes a separate optional feature. Full honest record: [`docs/VISION_STATUS.md`](docs/VISION_STATUS.md). Two real A100 runs produced 1 valid clip answer out of 4; nothing from the VLM reaches the product.
+> 2. **The #1 priority is the text-based retention predictor**, the core USP that is **not built yet**. Today's curve is an assumption-driven heuristic scenario, not a prediction.
+> 3. **Next:** the full text pipeline (audio → transcript when no subtitles are supplied), stronger edit guidelines, all analytics, and a cleaner UI per the product spec the owner supplied (Projects / New analysis / Review / Edit plan / Evaluation / Settings).
+>
+> **Built since the last update:**
+> - Review workspace on one shared selection model:
+>   - video + transcript canvas (word follows playback, search, marker layers)
+>   - full-width timeline with Retention / Risk / Findings / Shots / Speech / On-screen-text lanes and a hover readout
+>   - findings list + five-question finding detail
+>   - Shots filmstrip (shipped per-shot stills)
+> - Edit plan page with conflicts, a duration/payoff shift, and the **hypothetical edit scenario** (RETENTION_MODEL §5: cuts transform the timeline; APV and AVD shown together; no winner)
+> - Evaluation page (reviewer decisions per type, coverage, stage times, the unvalidated list)
+> - Settings page (key status only, what is sent to Cerebras, models)
+> - New analysis page (three start routes; three-state Colab handoff read from the real workspace; import from outputs/)
+> - Projects cards with true pipeline state
+>
+> **Known gaps right now:**
+> - **Script-only mode backend is NOT built.** The "I have a transcript/script" route previews and parses the file client-side, but `POST /projects/{id}/script` and the `analyze-script` CLI do not exist yet.
+> - The vision runner's contiguous-label fix is unit-level only.
+
 Read §0 and §3 before touching anything.
 
 Reading order for the new machine:

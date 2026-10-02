@@ -10,6 +10,7 @@ validator the website importer uses before the stage succeeds.
 
 from __future__ import annotations
 
+import bisect
 import json
 import platform
 import shutil
@@ -46,7 +47,7 @@ def code_revision() -> str:
 
 
 def export_spec(source: dict) -> StageSpec:
-    return StageSpec(name="export", version="1", deps=("probe", "proxy", "score"),
+    return StageSpec(name="export", version="2", deps=("probe", "proxy", "score"),
                      optional_deps=("audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual", "embed",
                                     "narrative"),
                      config={"schema": SCHEMA_VERSION, "producer": PRODUCER_VERSION},
@@ -143,6 +144,23 @@ def export_stage(source: dict, ws):
                                 "unknown_reason": None if value is not None else "value not parsed"})
                 e["ref_id"] = sid
         signals += measurement_signals(source, d, T)
+
+        # Shot thumbnails + stills inside black/freeze intervals: the review UI's shot strip and visual-fault
+        # evidence need pictures even when no VLM result is attached. Nearest 1 fps grid frame, no new decoding.
+        if "frames" in d and "video_scan" in d and "visual_job" in d:
+            grid_ms = sorted((g["at_ms"], g["frame_id"]) for g in read_json(d["frames"].path("grid.json")))
+            times = [t for t, _ in grid_ms]
+
+            def nearest(ms: int) -> str:
+                i = bisect.bisect_left(times, ms)
+                cands = [grid_ms[j] for j in (i - 1, i) if 0 <= j < len(grid_ms)]
+                return min(cands, key=lambda tf: abs(tf[0] - ms))[1]
+
+            for s in read_json(d["video_scan"].path("shots.json")):
+                frames_needed[nearest((s["start_ms"] + s["end_ms"]) // 2)] = True
+            filt = read_json(d["video_scan"].path("filters.json"))
+            for iv in (filt.get("black", []) + filt.get("freeze", []))[:60]:
+                frames_needed[nearest((iv["start_ms"] + iv["end_ms"]) // 2)] = True
 
         frames_rows = []
         if frames_needed and "frames" in d:

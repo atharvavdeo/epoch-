@@ -14,7 +14,14 @@ export type Issue = {
   explanation: string; counter_explanation: string; suggested_edit_ids: string[]; review_status: string;
   review_reason: string | null; cause_group_id: string; comparison_intervals: Interval[] | null; suggestions: Suggestion[];
 };
-export type Segment = { segment_id: string; interval: Interval; text: string; language: string; precision: string };
+export type Segment = { segment_id: string; interval: Interval; text: string; language: string; precision: string; word_ids: string[] };
+export type Word = { word_id: string; segment_id: string; text: string; start_ms: number | null; end_ms: number | null;
+  alignment_status: string };
+export type Observation = { observation_id: string; interval: Interval; statement: string; kind?: string; status: string;
+  sampled_frame_ids: string[]; evidence_ids: string[] };
+export type Shot = { shot_id: string; interval: Interval; start_boundary_source: string; end_boundary_source: string;
+  metrics: Record<string, number | null>; thumb: { artifact_id: string; at_ms: number; inside_shot: boolean } | null;
+  observations: Observation[] };
 export type TrackValue = { risk: number | null; coverage: number; lower: number; upper: number };
 export type RiskBin = { interval: Interval; track_values: Record<string, TrackValue>; combined_lower: number;
   combined_upper: number; display_value: number | null; evidence_coverage: number; contributing_issue_ids: string[] };
@@ -24,12 +31,27 @@ export type Scenario = { scenario_id: string; mode: string; formula_version: str
   labels: string[]; assumptions: { retention_at_30s: number; retention_at_end: number; kappa: number; acknowledged: boolean };
   bins: ScenarioBin[]; summary: { duration_ms: number; assumed_avd_seconds: Bound; assumed_apv_pct: Bound;
     assumed_end_pct: Bound | null; top_regions: { interval: Interval; max_risk: number; issue_ids: string[] }[] } };
-export type Signal = { signal_id: string; feature_id: string; interval: Interval; name: string; value: unknown };
+export type Signal = { signal_id: string; feature_id: string; interval: Interval; name: string; value: unknown; unit?: string };
 export type Coverage = { modality: string; interval: Interval; status: string; reason: string | null; sampling_profile: string };
 export type Promise_ = { promise_id: string; title_quote: string; obligation: string; status: string;
   partial_interval: Interval | null; fulfilled_interval: Interval | null };
+export type PipelineState = { project_id: string; state: "not_started" | "local_running" | "ready_for_colab" | "package_ready" | "imported";
+  workspaces: { asset_sha256: string; original_name: string | null; kind: string; state: string; stages: Record<string, string>;
+    visual_attached: boolean; colab_job: string | null; package: string | null; package_imported: boolean; outputs_dir: string | null }[] };
 export type Project = { project_id: string; title: string; category: string; declared_language: string; state: string;
+  description?: string | null; updated_at?: string; created_at?: string;
   active_run_id: string | null; runs: { run_id: string; status: string; package_kind: string; created_at: string }[] };
+
+type Side = { duration_ms: number; assumed_avd_seconds: Bound; assumed_apv_pct: Bound; assumed_end_pct: Bound | null; coverage_status: string };
+export type Hypothetical = { status: string; reason?: string; label: string; cuts: Interval[]; removed_ms: number;
+  removed_by_cut_issue_ids: string[]; assumed_resolved_issue_ids: string[]; before: Side; after: Side; not_modelled: string; note: string };
+export type EvalRun = { run_id: string; project_title: string; category: string; language: string; created_at: string; package_kind: string;
+  duration_ms: number; missing: Record<string, string>; coverage: Record<string, number>; stage_seconds: Record<string, number>;
+  issues: { total: number; by_type: Record<string, { total: number; accepted: number; dismissed: number; open: number }>;
+    accepted: number; dismissed: number; open: number; supported: number; provisional: number } };
+export type Evaluation = { runs: EvalRun[]; unvalidated: string[] };
+export type Settings = { data_dir: string; cerebras: { configured: boolean; base_url: string; model: string | null };
+  asr_threads: string; sent_to_cerebras: string; models: { role: string; model_id: string; revision: string; present: boolean }[] };
 
 export class ApiError extends Error {
   constructor(public code: string, message: string, public action?: string | null) { super(message); }
@@ -51,7 +73,10 @@ const json = (method: string, body: unknown): RequestInit => ({
 
 export const api = {
   projects: () => call<{ items: Project[] }>("/projects"),
-  createProject: (b: { title: string; category: string; declared_language: string }) => call<Project>("/projects", json("POST", b)),
+  createProject: (b: { title: string; category: string; declared_language: string; description?: string }) => call<Project>("/projects", json("POST", b)),
+  pipeline: (id: string) => call<PipelineState>(`/projects/${id}/pipeline`),
+  importLocal: (path: string) => call<{ import_id: string }>("/imports/local", json("POST", { path })),
+  saveScript: (id: string, p: { source_name: string; raw: string }) => call<{ path: string; command: string }>(`/projects/${id}/script`, json("POST", { source_name: p.source_name, text: p.raw })),
   analysisRequest: (id: string) => call<{ command: string; note: string }>(`/projects/${id}/analysis-request`),
   importZip: (f: File) => { const fd = new FormData(); fd.append("file", f); return call<{ import_id: string }>("/imports", { method: "POST", body: fd }); },
   importStatus: (id: string) => call<{ status: string; committed_run_id: string | null; errors: { code: string; message: string }[] }>(`/imports/${id}`),
@@ -60,9 +85,11 @@ export const api = {
     asset: { duration_ms: number; original_name: string }; package_kind: string; missing_stages: Record<string, string>;
     project: { project_id: string; title: string; category: string; declared_language: string } | null;
     proxy_artifact_id: string | null; coverage: Coverage[] }>(`/runs/${id}`),
-  transcript: (id: string) => call<{ segments: Segment[] }>(`/runs/${id}/transcript`),
+  transcript: (id: string) => call<{ segments: Segment[]; words: Word[] }>(`/runs/${id}/transcript`),
+  shots: (id: string) => call<{ items: Shot[] }>(`/runs/${id}/shots`),
   timeline: (id: string) => call<{ risk: RiskBin[]; scenarios: Scenario[]; coverage: Coverage[]; chapters: Signal[];
-    markers: Signal[]; structure_spans: Signal[]; promises: Promise_[]; duration_ms: number }>(`/runs/${id}/timeline`),
+    markers: Signal[]; structure_spans: Signal[]; promises: Promise_[]; shots: { shot_id: string; interval: Interval; metrics: Record<string, number | null> }[];
+    duration_ms: number }>(`/runs/${id}/timeline`),
   issues: (id: string) => call<{ items: Issue[] }>(`/runs/${id}/issues`),
   evidence: (run: string, ev: string) => call<{ evidence: { kind: string; interval: Interval; quote: string | null; precision: string };
     ref: Record<string, unknown> | null; frames: { frame_id: string; artifact_id: string; at_ms: number }[] }>(`/runs/${run}/evidence/${ev}`),
@@ -70,6 +97,10 @@ export const api = {
     call(`/runs/${run}/issues/${issue}/review`, json("PATCH", { status, reason })),
   scenario: (run: string, a: { retention_at_30s: number; retention_at_end: number; kappa: number; acknowledged: boolean }) =>
     call<Scenario>(`/runs/${run}/scenarios`, json("POST", a)),
+  hypothetical: (run: string, a: { retention_at_30s: number; retention_at_end: number; kappa: number; acknowledged: boolean;
+    assumed_resolved_issue_ids: string[] }) => call<Hypothetical>(`/runs/${run}/hypothetical`, json("POST", a)),
+  evaluation: () => call<Evaluation>("/evaluation"),
+  settings: () => call<Settings>("/settings"),
   artifactUrl: (run: string, art: string) => `/api/v1/runs/${run}/artifacts/${art}`,
 };
 

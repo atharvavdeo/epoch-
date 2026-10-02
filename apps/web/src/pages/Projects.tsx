@@ -1,90 +1,61 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api } from "../api";
+import { api, type Project } from "../api";
 import { Dock } from "../components/Dock";
 
+const STATE_LABEL: Record<string, string> = {
+  not_started: "Waiting for local analysis", local_running: "Local analysis in progress", ready_for_colab: "Ready for Colab",
+  package_ready: "Analysis package ready to import", imported: "Ready to review",
+};
+
+function ProjectCard({ p }: { p: Project }) {
+  const pipe = useQuery({ queryKey: ["pipeline", p.project_id], queryFn: () => api.pipeline(p.project_id), refetchInterval: 15000 });
+  const run = p.active_run_id;
+  const shots = useQuery({ queryKey: ["shots", run], queryFn: () => api.shots(run!), enabled: !!run, staleTime: 600_000 });
+  const thumb = shots.data?.items.find((s) => s.thumb)?.thumb;
+  const active = p.runs.find((r) => r.run_id === run);
+  const state = pipe.data?.state ?? (run ? "imported" : "not_started");
+  const ws = pipe.data?.workspaces[0];
+  const visualIncomplete = !!active && active.package_kind !== "analysis";
+  const label = state === "imported" && visualIncomplete ? "Ready to review · visual analysis incomplete"
+    : state === "package_ready" && run ? "New analysis package ready to import" : STATE_LABEL[state];
+  return (
+    <div className="pcard">
+      <div className="pthumb">{thumb && run ? <img src={api.artifactUrl(run, thumb.artifact_id)} alt="" /> : <span className="faint">no preview yet</span>}</div>
+      <div className="pbody">
+        <h3>{p.title}</h3>
+        <div className="faint" style={{ fontSize: 13 }}>{p.category} · {p.declared_language} · {ws?.kind ?? "video"} source
+          {p.runs.length ? ` · run ${p.runs.length}` : ""}{p.updated_at ? ` · last activity ${p.updated_at.slice(0, 16).replace("T", " ")}` : ""}</div>
+        <div style={{ marginTop: 8 }}><span className={`pill ${state === "imported" && !visualIncomplete ? "supported" : "amber"}`}>{label}</span></div>
+        <div className="actions">
+          {run && <Link to={`/runs/${run}`}><button className="amber">Open review</button></Link>}
+          {state !== "imported" && <Link to={`/new?project=${p.project_id}&start=video`}><button>{state === "package_ready" ? "Import package" : "Resume"}</button></Link>}
+          {run && <Link to={`/runs/${run}/plan`}><button className="ghost">Edit plan</button></Link>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Projects() {
-  const qc = useQueryClient();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-  const [importMsg, setImportMsg] = useState<string | null>(null);
-  const [form, setForm] = useState({ title: "", category: "education", declared_language: "en" });
-  const [cmd, setCmd] = useState<{ command: string; note: string } | null>(null);
-
-  const upload = useMutation({
-    mutationFn: async (f: File) => {
-      setImportMsg("Uploading and validating…");
-      const { import_id } = await api.importZip(f);
-      for (let i = 0; i < 600; i++) {  // the spinner always terminates in a clear state
-        const st = await api.importStatus(import_id);
-        if (st.status === "committed") return st;
-        if (st.status === "rejected") throw new Error(st.errors.map((e) => `${e.code}: ${e.message}`).join("; "));
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      throw new Error("import is still running; refresh later");
-    },
-    onSuccess: () => { setImportMsg("Imported."); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: (e: Error) => setImportMsg(`Rejected: ${e.message}`),
-  });
-
-  const create = useMutation({
-    mutationFn: async () => { const p = await api.createProject(form); return api.analysisRequest(p.project_id); },
-    onSuccess: (r) => { setCmd(r); qc.invalidateQueries({ queryKey: ["projects"] }); },
-  });
-
+  const items = projects.data?.items ?? [];
   return (
     <div className="shell">
-      <div className="header">
-        <span />
-        <div className="title"><h1>Retention review</h1><div className="sub">Local analysis · evidence you can check · runs offline</div></div>
-        <span />
+      <div className="header"><span />
+        <div className="title"><h1>Projects</h1><div className="sub">Local analysis · evidence you can check · runs offline</div></div>
+        <div className="right"><Link to="/new"><button className="hero">+ New analysis</button></Link></div>
       </div>
-      <div className="home">
-        <div className="card">
-          <h2>Projects</h2>
-          {projects.isLoading && <p className="muted">Loading…</p>}
-          {projects.error && <p className="err">API not reachable. Start it: .venvs/api/Scripts/python.exe -m uvicorn apps.api.main:app --port 8765</p>}
-          <div className="projects" style={{ marginTop: 10 }}>
-            {projects.data?.items.map((p) => (
-              <div className="inset" key={p.project_id} style={{ padding: 16 }}>
-                <h3>{p.title}</h3>
-                <div className="muted">{p.category} · {p.declared_language} · <span className={`pill ${p.state === "partial" ? "amber" : "supported"}`}>{p.state}</span></div>
-                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {p.runs.map((r) => (
-                    <Link key={r.run_id} to={`/runs/${r.run_id}`}>
-                      {r.run_id === p.active_run_id ? "● " : "○ "}{r.created_at.slice(0, 16).replace("T", " ")} — {r.package_kind}
-                    </Link>
-                  ))}
-                  {!p.runs.length && <span className="muted">No analysis imported yet.</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card">
-            <h2>Import analysis</h2>
-            <p className="muted">Choose a <span className="mono">*.retention.zip</span> package produced by the pipeline.</p>
-            <input type="file" accept=".zip" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
-            {importMsg && <p className={upload.isError ? "err" : "muted"}>{importMsg}</p>}
-          </div>
-          <div className="card">
-            <h2>Prepare analysis</h2>
-            <p className="muted">Uploading a video here does not start GPU analysis. This creates the project and shows the command to run.</p>
-            <div style={{ display: "grid", gap: 8 }}>
-              <input placeholder="Exact video title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                <option value="education">education</option><option value="tech_review">tech_review</option><option value="other">other</option>
-              </select>
-              <select value={form.declared_language} onChange={(e) => setForm({ ...form, declared_language: e.target.value })}>
-                <option value="en">English</option><option value="hi">Hindi</option><option value="mixed">Hinglish / mixed</option>
-              </select>
-              <button className="amber" disabled={!form.title.trim()} onClick={() => create.mutate()}>Create project</button>
-            </div>
-            {cmd && <><p className="muted">{cmd.note}</p><pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>{cmd.command}</pre></>}
-          </div>
-        </div>
-      </div>
+      {projects.isLoading && <p className="muted">Loading…</p>}
+      {projects.error && <div className="banner">The local API is not reachable. Start it with:
+        <div className="mono">.venvs/api/Scripts/python.exe -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765</div></div>}
+      {!projects.isLoading && !items.length && !projects.error && (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <h2>Start with one video</h2>
+          <p className="muted">Tell us the title it promises, run the local analysis, and land in Review.</p>
+          <Link to="/new"><button className="hero">+ New analysis</button></Link>
+        </div>)}
+      <div className="projects">{items.map((p) => <ProjectCard key={p.project_id} p={p} />)}</div>
       <Dock active="projects" />
     </div>
   );

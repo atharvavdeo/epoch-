@@ -181,3 +181,16 @@ def test_truncated_vlm_answer_gets_a_shorten_request_not_a_resend():
     assert "cut off" in last and "c000" in last and "{clip_id}" not in last
     assert all(m["role"] != "assistant" for m in out)  # the truncated text is not fed back
     assert "single line" in tpl["SYSTEM"] and "15 words" in tpl["TASK"]
+
+
+def test_shown_frames_get_contiguous_labels_and_answers_map_back():
+    from epoch_vlm.runner import relabel, remap_labels
+    shown = [{"ref": "F05", "at_ms": 1}, {"ref": "F07", "at_ms": 2}, {"ref": "F12", "at_ms": 3}]
+    disp = relabel(shown)
+    assert [f["ref"] for f in disp] == ["F01", "F02", "F03"] and shown[0]["ref"] == "F05"  # originals untouched
+    to_pool = {d["ref"]: f["ref"] for d, f in zip(disp, shown)}
+    ans = {"segments": [{"frames": ["F01", "F03"], "visible_content": "F02 is not a label here"}],
+           "information_flow": {"evidence_frames": ["F02"]}, "text_legibility": [{"frame": "F03", "text": "x"}]}
+    out = remap_labels(ans, to_pool)
+    assert out["segments"][0]["frames"] == ["F05", "F12"] and out["segments"][0]["visible_content"] == "F02 is not a label here"
+    assert out["information_flow"]["evidence_frames"] == ["F07"] and out["text_legibility"][0]["frame"] == "F12"

@@ -26,7 +26,7 @@ from sqlalchemy import insert, select, update
 
 from apps.api import db
 from apps.api.importer import ImportRejected, cleanup_orphans, import_package, read_jsonl
-from contracts.common import Category, Language, new_uuid, utc_now
+from contracts.common import Category, Language, new_uuid, sha256_file, utc_now
 from contracts.package import LIMITS
 from pipeline.orchestration.settings import REPO_ROOT, data_dir
 
@@ -169,6 +169,89 @@ def analysis_request(project_id: str):
             "note": "Uploading a video here does not start GPU analysis. Run the command, then the Colab notebook, then import the package."}
 
 
+LOCAL_STAGES = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "visual_job"]
+FINISH_STAGES = ["visual", "embed", "narrative", "score", "export"]
+
+
+def _stage_status(ws: Path, cur: dict, name: str) -> str:
+    fp = cur.get(name)
+    if not fp:
+        return "not_run"
+    try:
+        return json.loads((ws / "stages" / name / fp / "stage.json").read_text(encoding="utf-8"))["status"]
+    except (OSError, ValueError, KeyError):
+        return "unknown"
+
+
+@app.get("/api/v1/projects/{project_id}/pipeline")
+def project_pipeline(project_id: str):
+    """Where this project's manual pipeline stands, read from the local workspace and outputs folder.
+
+    States: not_started -> local_running -> ready_for_colab -> package_ready -> imported. The website never
+    launches anything; it reports what the CLI and Colab have produced.
+    """
+    get_project(project_id)
+    work = data_dir() / "work"
+    with ENGINE.connect() as c:
+        imported = {x.package_sha256 for x in c.execute(select(db.runs.c.package_sha256).where(db.runs.c.project_id == project_id))}
+    out = []
+    for src in sorted(work.glob("*/source.json")):
+        try:
+            source = json.loads(src.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (source.get("project") or {}).get("project_id") != project_id:
+            continue
+        ws = src.parent
+        try:
+            cur = json.loads((ws / "current.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cur = {}
+        stages = {n: _stage_status(ws, cur, n) for n in LOCAL_STAGES + FINISH_STAGES}
+        sha8 = source["sha256"][:8]
+        outdir = next(iter(sorted((REPO_ROOT / "outputs").glob(f"*_{sha8}"))), None)
+        jobs = sorted(outdir.glob("colab/*.visualjob.zip"), key=lambda p: p.stat().st_mtime) if outdir else []
+        pkgs = sorted(outdir.glob("package/*.retention.zip"), key=lambda p: p.stat().st_mtime) if outdir else []
+        latest_pkg = pkgs[-1] if pkgs else None
+        pkg_imported = bool(latest_pkg) and sha256_file(latest_pkg) in imported
+        local_ok = all(stages[n] in ("complete", "partial") for n in LOCAL_STAGES)
+        if pkg_imported:
+            state = "imported"
+        elif latest_pkg:
+            state = "package_ready"
+        elif local_ok and stages["visual"] == "not_run":
+            state = "ready_for_colab"
+        else:
+            state = "local_running"
+        out.append({"asset_sha256": source["sha256"], "original_name": source.get("original_name"), "kind": source.get("kind"),
+                    "state": state, "stages": stages, "visual_attached": stages["visual"] in ("complete", "partial"),
+                    "colab_job": str(jobs[-1]) if jobs else None, "package": str(latest_pkg) if latest_pkg else None,
+                    "package_imported": pkg_imported, "outputs_dir": str(outdir) if outdir else None})
+    return {"project_id": project_id, "state": out[0]["state"] if out else "not_started", "workspaces": out}
+
+
+class LocalImportIn(BaseModel):
+    path: str = Field(min_length=5, max_length=1000)
+
+
+@app.post("/api/v1/imports/local", status_code=202)
+def import_local(body: LocalImportIn):
+    """Import a package the pipeline already wrote under outputs/ (no browser upload of 100+ MB)."""
+    p = Path(body.path).resolve()
+    root = (REPO_ROOT / "outputs").resolve()
+    if root not in p.parents or not p.name.endswith(".retention.zip") or not p.is_file():
+        raise ApiError(422, "invalid_path", "only *.retention.zip files inside the outputs folder can be imported this way")
+    import_id = new_uuid()
+    fd, tmp_name = tempfile.mkstemp(prefix="import_", suffix=".zip", dir=UPLOADS)
+    os.close(fd)
+    shutil.copyfile(p, tmp_name)  # the worker deletes its input; never hand it the original
+    now = utc_now()
+    with ENGINE.begin() as c:
+        c.execute(insert(db.imports).values(import_id=import_id, status="queued", filename=p.name, created_at=now, updated_at=now))
+    _jobs.put((import_id, Path(tmp_name)))
+    return {"import_id": import_id, "status": "queued"}
+
+
 class ActiveRunIn(BaseModel):
     run_id: str
 
@@ -264,6 +347,25 @@ def get_timeline(run_id: str, start_ms: int = Query(0, ge=0), end_ms: int | None
             "promises": read_jsonl(d, "promises"),
             "shots": [s for s in read_jsonl(d, "shots") if ov(s["interval"])],
             "duration_ms": _run_duration(r)}
+
+
+@app.get("/api/v1/runs/{run_id}/shots")
+def get_shots(run_id: str):
+    """Shot strip: measured shot + the shipped still nearest its middle + VLM observations overlapping it."""
+    r = _run_row(run_id)
+    d = Path(r.dir)
+    frames = sorted(read_jsonl(d, "frames"), key=lambda f: f["at_ms"])
+    obs = read_jsonl(d, "observations")
+    out = []
+    for s in read_jsonl(d, "shots"):
+        a, b = s["interval"]["start_ms"], s["interval"]["end_ms"]
+        mid = (a + b) // 2
+        inside = [f for f in frames if a <= f["at_ms"] < b]
+        thumb = min(inside or frames, key=lambda f: abs(f["at_ms"] - mid)) if frames else None
+        out.append({**s, "thumb": {"artifact_id": thumb["artifact_id"], "at_ms": thumb["at_ms"],
+                                   "inside_shot": bool(inside)} if thumb else None,
+                    "observations": [o for o in obs if o["interval"]["start_ms"] < b and o["interval"]["end_ms"] > a][:6]})
+    return {"items": out}
 
 
 def _run_duration(r) -> int:
@@ -376,6 +478,123 @@ def create_scenario(run_id: str, body: ScenarioIn):
         c.execute(insert(db.scenarios).values(scenario_id=sid, run_id=run_id, origin="user", created_at=sc["created_at"],
                                               json=json.dumps(sc)))
     return sc
+
+
+UNVALIDATED = [
+    "Audience retention accuracy: not evaluated. No matched YouTube retention data exists; every percentage is an assumed scenario.",
+    "Hindi and Hinglish videos: not yet run on real content (aligner and language hints untested in practice).",
+    "Visual model quality: Qwen3.5-9B answers have not passed qualification on a real GPU yet.",
+    "On-screen text (OCR): disabled; text checks rely on the visual model's sampled frames.",
+    "Model comparison on the frozen six-clip rubric (DesignDecisions): not run.",
+    "Finding precision: only the reviewer decisions recorded below; no independent labelled set yet.",
+]
+
+
+def _iso_s(a: str | None, b: str | None) -> float | None:
+    from datetime import datetime
+
+    if not a or not b:
+        return None
+    f = lambda s: datetime.fromisoformat(s.replace("Z", "+00:00"))  # noqa: E731
+    return round((f(b) - f(a)).total_seconds(), 1)
+
+
+@app.get("/api/v1/evaluation")
+def evaluation():
+    """What was tested, on which videos, with reviewer decisions; and what remains unvalidated."""
+    out = []
+    with ENGINE.connect() as c:
+        runs = c.execute(select(db.runs)).all()
+        for r in runs:
+            p = c.execute(select(db.projects).where(db.projects.c.project_id == r.project_id)).first()
+            iss = c.execute(select(db.issues).where(db.issues.c.run_id == r.run_id)).all()
+            run = json.loads(r.json)
+            man = json.loads(r.manifest_json)
+            T = _run_duration(r)
+            cov: dict[str, float] = {}
+            for cv in read_jsonl(Path(r.dir), "coverage"):
+                if cv["status"] == "observed":
+                    cov[cv["modality"]] = cov.get(cv["modality"], 0) + (cv["interval"]["end_ms"] - cv["interval"]["start_ms"]) / T
+            by_type: dict[str, dict[str, int]] = {}
+            ev = {"supported": 0, "provisional": 0}
+            for row in iss:
+                j = json.loads(row.json)
+                t = by_type.setdefault(row.type, {"total": 0, "accepted": 0, "dismissed": 0, "open": 0})
+                t["total"] += 1
+                t[row.review_status] = t.get(row.review_status, 0) + 1
+                ev[j["evidence_status"]] = ev.get(j["evidence_status"], 0) + 1
+            out.append({"run_id": r.run_id, "project_title": p.title if p else "", "category": p.category if p else "",
+                        "language": p.declared_language if p else "", "created_at": run["created_at"], "package_kind": r.package_kind,
+                        "duration_ms": T, "missing": man["missing_stage_reasons"],
+                        "coverage": {k: round(min(1.0, v), 4) for k, v in cov.items()},
+                        "stage_seconds": {s["name"]: _iso_s(s.get("started_at"), s.get("finished_at")) for s in run["stages"]},
+                        "issues": {"total": len(iss), "by_type": by_type, **ev,
+                                   **{k: sum(1 for x in iss if x.review_status == k) for k in ("accepted", "dismissed", "open")}}})
+    out.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"runs": out, "unvalidated": UNVALIDATED}
+
+
+@app.get("/api/v1/settings")
+def settings_view():
+    """Local configuration status. Never returns the API key itself."""
+    from pipeline.model_registry import MODELS
+    from pipeline.orchestration.settings import setting
+
+    models = []
+    for role, m in MODELS.items():
+        man = data_dir() / "models" / "manifests" / f"{m['repo'].replace('/', '__')}@{m['revision']}.json"
+        models.append({"role": role, "model_id": m["repo"], "revision": m["revision"], "present": man.exists()})
+    return {"data_dir": str(data_dir()),
+            "cerebras": {"configured": bool(setting("CEREBRAS_API_KEY")), "base_url": setting("CEREBRAS_BASE_URL", ""),
+                         "model": setting("CEREBRAS_MODEL") or None},
+            "asr_threads": setting("EPOCH_ASR_THREADS", "auto"),
+            "sent_to_cerebras": ("Only transcript text (paragraphs and quoted lines), the video title, category and language, "
+                                 "software measurements (times, rates) and visual notes. Never video, audio, frames, file paths or the API key."),
+            "models": models}
+
+
+class HypotheticalIn(BaseModel):
+    retention_at_30s: float = Field(gt=0, le=1)
+    retention_at_end: float = Field(gt=0, le=1)
+    kappa: float = Field(default=1.0, gt=0, le=5)
+    acknowledged: bool
+    assumed_resolved_issue_ids: list[str] = Field(default_factory=list, max_length=200)
+
+
+@app.post("/api/v1/runs/{run_id}/hypothetical")
+def hypothetical_plan(run_id: str, body: HypotheticalIn):
+    """Edit-plan comparison: accepted *cut* suggestions transform the timeline (RETENTION_MODEL §5, P2).
+
+    Issues the user explicitly assumes resolved are a separate input; review status never removes risk.
+    """
+    from pipeline.scoring.hypothetical import hypothetical
+    from pipeline.scoring.risk import ScoredIssue
+    from pipeline.scoring.scenario import Assumptions
+
+    r = _run_row(run_id)
+    if not body.acknowledged:
+        raise ApiError(409, "assumptions_not_acknowledged", "confirm 'These are assumptions' before computing summaries")
+    if body.retention_at_end > body.retention_at_30s:
+        raise ApiError(422, "invalid_assumptions", "retention at end must not exceed retention at 30 s")
+    with ENGINE.connect() as c:
+        rows = c.execute(select(db.issues).where(db.issues.c.run_id == run_id)).all()
+        sugs = {x.suggestion_id: json.loads(x.json) for x in c.execute(select(db.suggestions).where(db.suggestions.c.run_id == run_id))}
+    issues, cuts, known = [], [], set()
+    for row in rows:
+        i = json.loads(row.json)
+        known.add(i["issue_id"])
+        issues.append(ScoredIssue(i["issue_id"], i["risk_track"], i["severity"], i["evidence_status"],
+                                  i["affected_interval"]["start_ms"], i["affected_interval"]["end_ms"], i["cause_group_id"]))
+        if row.review_status == "accepted":
+            for sid in i["suggested_edit_ids"]:
+                s = sugs.get(sid)
+                if s and s["operation"] == "cut" and s.get("source_interval"):
+                    cuts.append((s["source_interval"]["start_ms"], s["source_interval"]["end_ms"]))
+    unknown = set(body.assumed_resolved_issue_ids) - known
+    if unknown:
+        raise ApiError(422, "unknown_issue", f"not issues of this run: {sorted(unknown)[:3]}")
+    return hypothetical(_run_duration(r), issues, read_jsonl(Path(r.dir), "risk"), cuts,
+                        set(body.assumed_resolved_issue_ids), Assumptions(body.retention_at_30s, body.retention_at_end, body.kappa))
 
 
 # ------------------------------------------------------------------- media
