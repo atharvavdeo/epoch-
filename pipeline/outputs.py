@@ -100,10 +100,18 @@ def export_outputs(ws, source: dict) -> Path:
         write_text(out / "07_transcript.txt", "\n".join(
             f"[{ts(s['interval']['start_ms'])} - {ts(s['interval']['end_ms'])}] ({s['language']}, {s['precision']}) {s['text']}"
             for s in t["segments"]) + "\n")
-        write_json(out / "07_transcript_words.json", {"segments": t["segments"], "words": t["words"], "stats": t["stats"]})
+        dropped = t.get("dropped_segments", [])
+        write_json(out / "07_transcript_words.json", {"segments": t["segments"], "words": t["words"], "stats": t["stats"],
+                                                      "dropped_segments": dropped})
         st = t["stats"]
         lines.append(f"Transcript: {len(t['segments'])} segments, words aligned {st['aligned_words']}/"
                      f"{st['aligned_words'] + st['unaligned_words']}")
+        if dropped:
+            _csv(out / "07_transcript_dropped.csv", ["start", "end", "words_per_s", "reason", "text"],
+                 [[ts(d["interval"]["start_ms"]), ts(d["interval"]["end_ms"]), d["words_per_s"], d["reason"], d["text"]]
+                  for d in dropped])
+            lines.append(f"  {len(dropped)} ASR repetition-loop segments removed (impossible speech rate); "
+                         f"see 07_transcript_dropped.csv")
     if recs["visual_job"]:
         vj = recs["visual_job"]
         s = read_json(vj.path("job_summary.json"))

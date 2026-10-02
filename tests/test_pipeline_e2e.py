@@ -144,6 +144,7 @@ def test_end_to_end(tmp_path, monkeypatch):
     assert "ocr" in vp.manifest.missing_stage_names
     for i in vp.records["issues"]:
         assert i.evidence_ids and i.suggested_edit_ids
+    shutil.copyfile(pkg, ROOT / "fixtures" / "generated" / "sample.retention.zip")  # used by tests/test_api.py
     # idempotent: same inputs re-export to the same cached package
     ex2 = run_stage(ws, export_spec(src), export_stage(src, ws))
     assert next(ex2.dir.glob("*.retention.zip")).read_bytes() == pkg.read_bytes()

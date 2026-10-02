@@ -6,6 +6,7 @@ from pipeline.local_models import manifest, model_fingerprint, offline_env
 from pipeline.orchestration.io import read_json
 from pipeline.orchestration.settings import setting
 from pipeline.orchestration.stage import StageContext, StageError, StageResult, StageSpec
+from pipeline.speech.common import LOOP_GUARD
 
 ASR_CONFIG = {
     "beam_size": 5,
@@ -48,8 +49,9 @@ def asr_stage(source: dict):
 
 
 def align_spec(source: dict) -> StageSpec:
-    return StageSpec(name="align", version="1", env="asr", deps=("asr", "audio"),
-                     config={"aligner_policy": "en->align_en; hi|mixed->align_hi", "interpolation": "discarded"},
+    return StageSpec(name="align", version="2", env="asr", deps=("asr", "audio"),
+                     config={"aligner_policy": "en->align_en; hi|mixed->align_hi", "interpolation": "discarded",
+                             "loop_guard": LOOP_GUARD},
                      extra={"align_en": model_fingerprint("align_en"), "align_hi": model_fingerprint("align_hi"),
                             "asset_sha256": source["sha256"]},
                      versions={"whisperx": "3.8.6", "transformers": "4.57.6"})
@@ -59,7 +61,7 @@ def align_stage(source: dict):
     def fn(ctx: StageContext) -> StageResult:
         asr = ctx.dep("asr")
         res = ctx.run_subprocess("pipeline.speech.align_stage", {
-            "asr_segments": str(asr.path("asr_segments.json")), "wav": str(ctx.dep("audio").path("audio16k.wav")),
+            "asr_segments": str(asr.path("asr_segments.json")), "loop_guard": LOOP_GUARD, "wav": str(ctx.dep("audio").path("audio16k.wav")),
             "asset_sha256": source["sha256"], "asr_fingerprint": asr.fingerprint, "threads": _threads(),
             "aligners": {"en": manifest("align_en")["snapshot_dir"], "hi": manifest("align_hi")["snapshot_dir"]},
         }, extra_env=offline_env())

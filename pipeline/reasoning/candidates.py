@@ -94,6 +94,11 @@ class CandidateBuilder:
         a, b = max(0, a), min(T, b)
         if b <= a or not evidence:
             return
+        for it in self.items:  # one defect span = one candidate (issue ids derive from type + interval)
+            if it["type"] == type_ and it["interval"] == {"start_ms": a, "end_ms": b}:
+                it["evidence"] += [e for e in evidence if e[0] not in {x[0] for x in it["evidence"]}]
+                it["note"] = f"{it['note']}; {note}"
+                return
         self.items.append({"type": type_, "interval": {"start_ms": a, "end_ms": b}, "evidence": evidence,
                            "options": options, "note": note, "comparison": comparison, "absence": absence})
 
@@ -113,7 +118,7 @@ class CandidateBuilder:
         for p in st.get("promises", []):
             first = p.get("first_fulfil_ms")
             if p["status"] in ("fulfilled", "partial") and first is not None and first >= PAYOFF_MIN_MS:
-                f_iv = p["fulfil_interval"]
+                f_iv = p.get("first_delivery_interval") or p["fulfil_interval"]
                 ev = self.ev_span(f_iv["start_ms"], f_iv["end_ms"], 3) + self.ev_span(0, min(T, 20_000), 2)
                 self.add("delayed_payoff", 0, first, ev, [
                     {"id": "O1", "operation": "move", "interval": f_iv, "destination_ms": st.get("hook_ms") or 0,
@@ -215,17 +220,39 @@ class CandidateBuilder:
         return self.items
 
 
-def find_pauses(vad: list[dict] | None, silence: list[dict], T: int) -> list[dict]:
-    """Non-speech gaps >= 2 s: VAD gaps (speech model) unioned with waveform silence."""
+QUIET = {"floor_dbfs": -45.0, "below_speech_db": 20.0, "min_quiet_frac": 0.6}
+
+
+def _quiet_frac(rms: dict | None, a: int, b: int, threshold: float) -> float | None:
+    if not rms:
+        return None
+    vals = [d if d is not None else -120.0 for t, d in zip(rms["t_ms"], rms["dbfs"]) if a <= t < b]
+    return sum(v < threshold for v in vals) / len(vals) if vals else None
+
+
+def find_pauses(vad: list[dict] | None, silence: list[dict], T: int, rms: dict | None = None) -> list[dict]:
+    """Quiet gaps >= 2 s: waveform silence, plus VAD no-speech gaps that are actually quiet.
+
+    A VAD gap only means nobody is talking. When the waveform there is as loud as
+    speech (a played clip, music, sound effects) it is not dead air, so it is
+    kept only if >= 60% of its RMS windows fall below max(-45 dBFS, speech
+    median - 20 dB). Without an RMS envelope the VAD gap is kept (unknown != loud).
+    """
+    speech_vals = [d for s in (vad or []) for t, d in zip((rms or {}).get("t_ms", []), (rms or {}).get("dbfs", []))
+                   if d is not None and s["start_ms"] <= t < s["end_ms"]]
+    threshold = QUIET["floor_dbfs"]
+    if speech_vals:
+        threshold = max(threshold, sorted(speech_vals)[len(speech_vals) // 2] - QUIET["below_speech_db"])
     gaps = []
     if vad:
         prev = 0
-        for v in vad:
+        for v in vad + [{"start_ms": T, "end_ms": T}]:
             if v["start_ms"] - prev >= PAUSE_MIN_MS:
-                gaps.append({"start_ms": prev, "end_ms": v["start_ms"], "source": "no speech detected (VAD)"})
+                qf = _quiet_frac(rms, prev, v["start_ms"], threshold)
+                if qf is None or qf >= QUIET["min_quiet_frac"]:
+                    gaps.append({"start_ms": prev, "end_ms": v["start_ms"], "source": "no speech detected (VAD), quiet waveform"
+                                 if qf is not None else "no speech detected (VAD)"})
             prev = v["end_ms"]
-        if T - prev >= PAUSE_MIN_MS:
-            gaps.append({"start_ms": prev, "end_ms": T, "source": "no speech detected (VAD)"})
     for s in silence:
         if s["end_ms"] - s["start_ms"] >= PAUSE_MIN_MS:
             gaps.append({**s, "source": "waveform silence below -50 dB"})

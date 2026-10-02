@@ -9,6 +9,10 @@ Only words WhisperX actually aligned (they carry a score) keep times.
 Interpolated words get null times: no fabricated precision (Schema Word).
 One aligner attempt per segment (COLAB_RUNBOOK §6); failure keeps ASR
 segment times and disables word-precise cut suggestions for that span.
+
+ASR repetition loops (impossible speech rate, common.loop_guard) are removed
+before alignment and listed under `dropped_segments` with the reason. Segment
+IDs keep the original ASR index so they stay stable.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from pathlib import Path
 
 from contracts.common import det_uuid
 from pipeline.orchestration.io import read_json, write_json
+from pipeline.speech.common import loop_guard
 from pipeline.orchestration.stage import subprocess_main
 
 
@@ -58,8 +63,11 @@ def run(args: dict, out: Path) -> dict:
         audio = audio.mean(axis=1)
     audio = np.ascontiguousarray(audio)
     asset_sha, asr_fp = args["asset_sha256"], args["asr_fingerprint"]
+    kept, dropped = loop_guard(asr["segments"], args["loop_guard"])
+    for d in dropped:
+        print(f"dropped ASR loop artefact {d['interval']} ({d['words_per_s']} words/s): {d['text'][:70]}", flush=True)
 
-    needed = sorted({"hi" if s["language_hint"] in ("hi", "mixed") else "en" for s in asr["segments"]})
+    needed = sorted({"hi" if asr["segments"][i]["language_hint"] in ("hi", "mixed") else "en" for i in kept})
     aligners, load_errors = {}, {}
     for lang in needed:
         try:
@@ -71,7 +79,8 @@ def run(args: dict, out: Path) -> dict:
     segments, words = [], []
     stats = {"aligned_words": 0, "unaligned_words": 0, "failed_segments": 0}
     t0 = time.time()
-    for idx, s in enumerate(asr["segments"]):
+    for n_done, idx in enumerate(kept):
+        s = asr["segments"][idx]
         seg_id = det_uuid("segment", asset_sha, asr_fp, idx)
         tokens = [t for t in s["text"].split(" ") if t.strip()]
         lang = "hi" if s["language_hint"] in ("hi", "mixed") else "en"
@@ -113,10 +122,11 @@ def run(args: dict, out: Path) -> dict:
                          "speaker_id": None, "original_asr_text": None, "correction_revision": 0,
                          "_asr": {k: s[k] for k in ("avg_logprob", "no_speech_prob", "compression_ratio", "temperature")},
                          "_align_error": err})
-        if (idx + 1) % 25 == 0:
-            print(f"aligned {idx + 1}/{len(asr['segments'])} segments ({time.time() - t0:.0f}s)", flush=True)
+        if (n_done + 1) % 25 == 0:
+            print(f"aligned {n_done + 1}/{len(kept)} segments ({time.time() - t0:.0f}s)", flush=True)
 
-    write_json(out / "transcript.json", {"segments": segments, "words": words, "stats": stats,
+    stats["dropped_segments"] = len(dropped)
+    write_json(out / "transcript.json", {"segments": segments, "words": words, "stats": stats, "dropped_segments": dropped,
                                          "aligner_load_errors": load_errors, "elapsed_s": round(time.time() - t0, 1)})
     total = stats["aligned_words"] + stats["unaligned_words"]
     print(f"words aligned {stats['aligned_words']}/{total}; failed segments {stats['failed_segments']}", flush=True)

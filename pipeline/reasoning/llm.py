@@ -26,9 +26,9 @@ MAX_RETRIES = 2
 
 
 class LLMError(RuntimeError):
-    def __init__(self, code: str, message: str, retryable: bool = False):
+    def __init__(self, code: str, message: str, retryable: bool = False, retry_after: float | None = None):
         super().__init__(message)
-        self.code, self.retryable = code, retryable
+        self.code, self.retryable, self.retry_after = code, retryable, retry_after
 
 
 @dataclass
@@ -112,7 +112,8 @@ class CerebrasClient:
                     raise LLMError("rate_limited" if r.status_code == 429 else "provider_error", last, retryable=True)
                 wait = float(r.headers.get("retry-after", 2 * attempt) or 2 * attempt)
                 if time.time() - start + wait > DEADLINE_S - 1:
-                    raise LLMError("rate_limited", f"{last}; Retry-After {wait}s exceeds deadline", retryable=True)
+                    raise LLMError("rate_limited", f"{last}; Retry-After {wait}s exceeds deadline", retryable=True,
+                                   retry_after=wait)
                 time.sleep(wait)
                 continue
             if r.status_code != 200:

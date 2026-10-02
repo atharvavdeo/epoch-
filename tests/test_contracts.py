@@ -118,3 +118,17 @@ def test_manifest_rejects_self_listing_dupes_and_unreasoned_missing():
     for bad in ["../x.json", "/abs.json", "C:/x.json", "a\\b.json", "a/./b.json"]:
         with pytest.raises(ValidationError):
             Manifest.model_validate({**base, "files": [{**f, "relative_path": bad}]})
+
+
+def test_loop_guard_drops_only_impossible_rates():
+    from pipeline.speech.common import loop_guard
+    segs = [
+        {"start_ms": 0, "end_ms": 4000, "text": "to find out I spent a week closely studying videos"},
+        {"start_ms": 4000, "end_ms": 4120, "text": "closely studying as many videos as I could find to find out"},
+        {"start_ms": 5000, "end_ms": 5600, "text": "Did you catch it?"},  # short fast burst: kept
+        # genuine repetition at a normal rate is a finding, never filtered
+        {"start_ms": 6000, "end_ms": 10000, "text": "to find out I spent a week closely studying videos"},
+    ]
+    kept, dropped = loop_guard(segs)
+    assert kept == [0, 2, 3]
+    assert [d["asr_index"] for d in dropped] == [1] and dropped[0]["reason"] == "impossible_speech_rate"

@@ -28,7 +28,7 @@ from pipeline.reasoning.candidates import (
     speech_rates,
 )
 
-PROMPT = REPO_ROOT / "prompts" / "narrative.v1.md"
+PROMPT = REPO_ROOT / "prompts" / "narrative.v2.md"
 MAX_CALLS, PER_CALL = 12, 4
 INPUT_CHAR_BUDGET = 22_000  # ~8k tokens incl. instructions (TRD §5)
 ROLES = ["cold_open", "greeting_intro", "hook", "setup", "main_content", "example_demo", "tangent", "sponsor", "cta",
@@ -191,32 +191,84 @@ def validate_adjudication(obj: dict, batch: list[tuple[str, dict]]) -> list[str]
     return errs
 
 
-def call_with_repair(llm, secs: dict, user: str, name: str, schema: dict, validator, budget: dict, max_tokens: int) -> tuple[dict | None, list[str], bool]:
+RATE_WAIT = {"max_single_s": 120.0, "max_total_s": 300.0}
+
+
+class PacedLLM:
+    """Waits out provider rate limits (HTTP 429 + Retry-After) at stage level.
+
+    The per-call 45 s deadline stays as specified; a 429 is the provider saying
+    when to come back, not a failed answer. Waits are bounded per call and in
+    total, and every wait is logged.
+    """
+
+    def __init__(self, llm, log, limits: dict = RATE_WAIT, sleep=None):
+        import time
+
+        self.llm, self.log, self.limits, self.waited = llm, log, limits, 0.0
+        self._sleep = sleep or time.sleep
+
+    def json_call(self, *a, **kw):
+        from pipeline.reasoning.llm import LLMError
+
+        while True:
+            try:
+                return self.llm.json_call(*a, **kw)
+            except LLMError as exc:
+                w = getattr(exc, "retry_after", None)
+                if (exc.code != "rate_limited" or w is None or w > self.limits["max_single_s"]
+                        or self.waited + w > self.limits["max_total_s"]):
+                    raise
+                self.log(f"rate limited by provider; waiting {w:.0f}s as instructed (total waited {self.waited + w:.0f}s)")
+                self._sleep(w + 1)
+                self.waited += w
+
+    def __getattr__(self, name):
+        return getattr(self.llm, name)
+
+
+def call_with_repair(llm, secs: dict, user: str, name: str, schema: dict, validator, budget: dict,
+                     max_tokens: int) -> tuple[dict | None, list[str], bool, dict | None]:
+    """Returns (valid object | None, errors, repaired, last object received even if invalid)."""
     from pipeline.reasoning.llm import LLMError
 
     try:
         obj = llm.json_call(secs["SYSTEM"], user, name, schema, max_tokens=max_tokens)
     except LLMError as exc:
-        return None, [f"{exc.code}: {exc}"], False
+        return None, [f"{exc.code}: {exc}"], False, None
     errs = validator(obj)
     if not errs:
-        return obj, [], False
+        return obj, [], False, obj
     if budget["repairs"] <= 0:
-        return None, errs, False
+        return None, errs, False, obj
     budget["repairs"] -= 1
     rep = user + "\n\n" + secs["REPAIR"].replace("{errors}", "\n".join(f"- {e}" for e in errs[:10]))
     try:
         obj2 = llm.json_call(secs["SYSTEM"], rep, name, schema, max_tokens=max_tokens)
     except LLMError as exc:
-        return None, errs + [f"repair failed: {exc.code}"], True
+        return None, errs + [f"repair failed: {exc.code}"], True, obj
     errs2 = validator(obj2)
-    return (obj2, [], True) if not errs2 else (None, errs2, True)
+    return (obj2, [], True, obj2) if not errs2 else (None, errs2, True, obj2)
+
+
+def salvage_decisions(obj: dict | None, batch: list[tuple[str, dict]]) -> dict:
+    """Keep decisions that pass the full validator on their own, so one bad quote doesn't
+    discard the other candidates in its batch."""
+    if not obj:
+        return {}
+    out = {}
+    for d in obj["decisions"]:
+        k = d["candidate"]
+        single = [(kk, c) for kk, c in batch if kk == k]
+        if single and k not in out and not validate_adjudication({"decisions": [d]}, single):
+            out[k] = d
+    return out
 
 
 # --------------------------------------------------------------------- stage
 
 def narrative_spec(source: dict) -> StageSpec:
-    return StageSpec(name="narrative", version="1", deps=("align", "embed", "probe", "video_scan", "audio"),
+    return StageSpec(name="narrative", version="4", deps=("align", "embed", "probe", "video_scan", "audio"),
                      optional_deps=("asr", "visual"),
                      config={"max_calls": MAX_CALLS, "per_call": PER_CALL, "char_budget": INPUT_CHAR_BUDGET,
                              "thresholds": {"intro_ms": 20000, "payoff_ms": 60000, "pause_ms": 2000, "static_shot_ms": 15000,
@@ -248,7 +300,7 @@ def narrative_stage(source: dict, llm_factory=None):
         vad = read_json(ctx.deps["asr"].path("vad.json"))["speech"] if "asr" in ctx.deps else None
         visual = read_json(ctx.deps["visual"].path("visual.json")) if "visual" in ctx.deps else None
 
-        llm = llm_factory() if llm_factory else CerebrasClient.from_env()
+        llm = PacedLLM(llm_factory() if llm_factory else CerebrasClient.from_env(), ctx.log)
         try:
             probe_info = llm.probe()
         except LLMError as exc:
@@ -265,9 +317,18 @@ def narrative_stage(source: dict, llm_factory=None):
                     f"visual analysis {'available' if visual else 'not available'}")
         user = (secs["STRUCTURE"].replace("{title}", title).replace("{category}", cat).replace("{language}", lang)
                 .replace("{duration}", mmss(T)).replace("{measured}", measured).replace("{paragraphs}", para_text))
-        structure, s_errs, s_rep = call_with_repair(
-            llm, secs, user, "structure", STRUCTURE_SCHEMA,
-            lambda o: validate_structure(o, [c["chunk_id"] for c in chunks], shown, title), budget, 6000)
+        validate_s = lambda o: validate_structure(o, [c["chunk_id"] for c in chunks], shown, title)  # noqa: E731
+        structure, s_errs, s_rep, s_last = call_with_repair(llm, secs, user, "structure", STRUCTURE_SCHEMA, validate_s,
+                                                            budget, 6000)
+        dropped_spans = []
+        if structure is None and s_last is not None and s_errs and all(e.startswith("spans[") for e in s_errs):
+            # spans are optional annotations: drop the ones with unverifiable quotes instead of failing the stage
+            bad = {int(e[len("spans["):e.index("]")]) for e in s_errs}
+            dropped_spans = [sp for i, sp in enumerate(s_last["spans"]) if i in bad]
+            candidate = {**s_last, "spans": [sp for i, sp in enumerate(s_last["spans"]) if i not in bad]}
+            if not validate_s(candidate):
+                structure = candidate
+                ctx.log(f"structure: dropped {len(dropped_spans)} span(s) whose quotes were not exact")
         if structure is None:
             raise StageError("structure_invalid", f"structure pass failed validation: {s_errs[:3]}")
         st = derive_structure(structure, chunk_by_id, seg_by_id, T)
@@ -286,7 +347,7 @@ def narrative_stage(source: dict, llm_factory=None):
         long_static = [s for s in shots if s["end_ms"] - s["start_ms"] >= 15_000 and (s["metrics"].get("motion_mean") or 0) < 0.02]
         builder = CandidateBuilder({
             "book": book, "segments": segments, "chunk_by_id": chunk_by_id, "seg_by_id": seg_by_id, "duration_ms": T,
-            "structure": st, "pairs": pairs, "pauses": find_pauses(vad, audio.get("silence", []), T), "rushed": rushed,
+            "structure": st, "pairs": pairs, "pauses": find_pauses(vad, audio.get("silence", []), T, audio.get("rms")), "rushed": rushed,
             "clip_windows": merge_clip_windows(audio.get("clipping_windows", [])),
             "true_peak": (audio.get("loudness") or {}).get("true_peak_dbfs"), "black": filters["black"],
             "observations": obs, "obs_ev": obs_ev, "long_static_shots": long_static,
@@ -311,10 +372,14 @@ def narrative_stage(source: dict, llm_factory=None):
             batch = [(c["kid"], c) for c in cands[b:b + PER_CALL]]
             user = (secs["ADJUDICATE"].replace("{title}", title).replace("{category}", cat).replace("{duration}", mmss(T))
                     .replace("{structure}", struct_summary).replace("{candidates}", candidates_text(batch)))
-            obj, errs, _ = call_with_repair(llm, secs, user, "adjudication", ADJ_SCHEMA,
-                                            lambda o, batch=batch: validate_adjudication(o, batch), budget, 4000)
+            obj, errs, _, last = call_with_repair(llm, secs, user, "adjudication", ADJ_SCHEMA,
+                                                  lambda o, batch=batch: validate_adjudication(o, batch), budget, 4000)
             if obj is None:
-                unadjudicated += [{"candidate": k, "type": c["type"], "errors": errs[:3]} for k, c in batch]
+                kept = salvage_decisions(last, batch)
+                decisions.update(kept)
+                unadjudicated += [{"candidate": k, "type": c["type"],
+                                   "errors": [e for e in errs if e.startswith(f"{k}:")][:3] or errs[:3]}
+                                  for k, c in batch if k not in kept]
                 continue
             for d in obj["decisions"]:
                 decisions[d["candidate"]] = d
@@ -324,7 +389,7 @@ def narrative_stage(source: dict, llm_factory=None):
         signals = narrative_signals(st, pairs, chunk_by_id, rates, book)
         evidence = [{k: v for k, v in e.items() if not k.startswith("_")} for e in book.records.values()]
         write_json(ctx.out / "narrative.json", {
-            "structure_raw": structure, "structure": st, "issues": issues, "suggestions": suggestions,
+            "structure_raw": structure, "structure_dropped_spans": dropped_spans, "structure": st, "issues": issues, "suggestions": suggestions,
             "promises": promises, "signals": signals, "evidence": evidence, "dismissed": dismissed,
             "unadjudicated": unadjudicated, "candidates": [{k: v for k, v in c.items() if not k.startswith("_")} for c in cands],
             "llm": {**llm.usage(), "probe": probe_info, "prompt_sha256": prompt_sha(), "repairs_used": 8 - budget["repairs"],
@@ -364,12 +429,18 @@ def derive_structure(s: dict, chunk_by_id: dict, seg_by_id: dict, T: int) -> dic
         status = led["status"] if led else "uncertain"
         f_iv = span_iv(led["fulfilled_chunks"][:1]) if led and led["fulfilled_chunks"] else None
         p_iv = span_iv(led["partial_chunks"]) if led and led["partial_chunks"] else None
-        first_fulfil = (f_iv or p_iv or {}).get("start_ms") if status in ("fulfilled", "partial") else None
+        # Payoff timing = the first paragraph that delivers on the promise at all (partial or full).
+        # A video that delivers progressively and summarises at the end has no delayed payoff.
+        delivering = sorted((c for c in (led["partial_chunks"] + led["fulfilled_chunks"] if led else []) if c in chunk_by_id),
+                            key=start)
+        d_iv = span_iv(delivering[:1])
+        first_fulfil = d_iv["start_ms"] if d_iv and status in ("fulfilled", "partial") else None
         promises.append({"index": i, "obligation": o["obligation"], "title_quote": o["title_quote"], "status": status,
                          "setup_chunks": led["setup_chunks"] if led else [], "partial_chunks": led["partial_chunks"] if led else [],
                          "fulfilled_chunks": led["fulfilled_chunks"] if led else [], "note": led["note"] if led else "",
                          "setup_ms": start(led["setup_chunks"][0]) if led and led["setup_chunks"] else None,
-                         "first_fulfil_ms": first_fulfil, "fulfil_interval": f_iv or p_iv, "partial_interval": p_iv})
+                         "first_fulfil_ms": first_fulfil, "first_delivery_interval": d_iv,
+                         "fulfil_interval": f_iv or p_iv, "partial_interval": p_iv})
     chapters = []
     for c in s["chapters"]:
         iv = span_iv([c["start_chunk"], c["end_chunk"]])
@@ -474,7 +545,10 @@ def build_promises(st, chunk_by_id, seg_by_id, book):
         out.append({"promise_id": det_uuid("promise", p["obligation"], p["index"]), "title_quote": p["title_quote"],
                     "obligation": p["obligation"][:600], "setup_evidence_ids": evs(p["setup_chunks"][:1]),
                     "fulfilment_evidence_ids": fulfil_ev, "status": status,
-                    "partial_interval": p["partial_interval"] if status == "partial" else None,
+                    # for a fulfilled promise, partial_interval marks where delivery begins (when before completion)
+                    "partial_interval": p["partial_interval"] if status == "partial" else (
+                        p["first_delivery_interval"] if status == "fulfilled" and p.get("first_delivery_interval")
+                        and p["first_delivery_interval"]["start_ms"] < p["fulfil_interval"]["start_ms"] else None),
                     "fulfilled_interval": p["fulfil_interval"] if status == "fulfilled" else None})
     return out
 

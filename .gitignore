@@ -29,3 +29,6 @@ outputs/
 
 # build metadata from editable installs
 *.egg-info/
+apps/web/node_modules/
+apps/web/dist/
+*.tsbuildinfo

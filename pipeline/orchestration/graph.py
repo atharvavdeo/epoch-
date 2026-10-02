@@ -126,7 +126,10 @@ def run_finish(ws, source: dict, *, force: set[str] | None = None) -> bool:
     for spec, fn in steps:
         rec = run_stage(ws, spec, fn, force=spec.name in force)
         if rec.status in ("failed", "skipped"):
+            # Stop: later stages would resolve `current` of the failed stage, i.e. its last *good* output from
+            # earlier inputs, and present a stale package as if it were this run's result.
+            print(f"[stop] {spec.name} {rec.status}: later stages were NOT rebuilt. Any existing package still "
+                  f"reflects the previous successful {spec.name} output; fix the error and re-run finish.")
             ok = False
-            if spec.name in ("score", "export"):
-                break
+            break
     return ok
