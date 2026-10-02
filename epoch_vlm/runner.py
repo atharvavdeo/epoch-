@@ -27,7 +27,8 @@ from pathlib import Path
 
 from epoch_vlm import RESULT_PROTOCOL
 from epoch_vlm.backends import GpuOOM
-from epoch_vlm.prompting import build_messages, load_template, repair_messages, select_frames, template_sha, transcript_blob
+from epoch_vlm.prompting import (build_messages, load_template, repair_messages, select_frames, shorten_messages, template_sha,
+                                  transcript_blob)
 from epoch_vlm.schema import extract_json, validate
 
 HEADROOM_GIB = 2.0
@@ -79,7 +80,7 @@ class Runner:
         if profile not in self.job["profiles_allowed"]:
             raise RuntimeError(f"profile {profile} not allowed by this job ({self.job['profiles_allowed']})")
         self.limits = self.job["limits"]
-        tpl_path = job_dir / "runtime" / "prompts" / "visual_observation.v1.md"
+        tpl_path = job_dir / "runtime" / "prompts" / "visual_observation.v2.md"
         self.tpl = load_template(tpl_path)
         self.prompt_sha = template_sha(tpl_path)
         self.repairs_left = int(self.limits["max_repairs"])
@@ -178,7 +179,10 @@ class Runner:
                     self.repairs_left -= 1
                     rec["repair_used"] = True
                     self.event(event="repair", unit=unit_id, errors=errors[:5])
-                    rmsgs = repair_messages(msgs, gen.text, errors, expected_id, self.tpl)
+                    truncated = gen.hit_token_limit and "SHORTEN" in self.tpl
+                    rmsgs = (shorten_messages(msgs, expected_id, self.tpl) if truncated
+                             else repair_messages(msgs, gen.text, errors, expected_id, self.tpl))
+                    rec["repair_kind"] = "shorten" if truncated else "repair"
                     rprep = self.backend.prepare(rmsgs)
                     if rprep.input_tokens > token_cap + int(self.limits["max_new_tokens"]) + 600:
                         errors = errors + [f"repair prompt {rprep.input_tokens} tokens exceeds budget"]

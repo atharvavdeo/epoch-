@@ -69,7 +69,7 @@ def test_real_processor_and_token_budget(job_dir):
 
     proc = AutoProcessor.from_pretrained(SNAP, local_files_only=True)
     be = QwenBackend.from_parts(tiny_model(), proc, device="cpu")
-    tpl = load_template(job_dir / "runtime/prompts/visual_observation.v1.md")
+    tpl = load_template(job_dir / "runtime/prompts/visual_observation.v2.md")
     job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
     print("template:", be.template_info)
     print("placement:", {k: be.placement[k] for k in ("bf16_fraction", "non_bf16_count")}, be.placement["non_bf16_parameters"][:6])

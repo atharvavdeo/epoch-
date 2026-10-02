@@ -170,3 +170,14 @@ def test_quote_repair_moves_to_neighbouring_paragraph():
     fixes = repair_quotes(obj, ["P1", "P2"], shown)
     assert obj["spans"][0]["chunk"] == "P1" and obj["spans"][0]["quote"] in shown["P1"]
     assert obj["spans"][1]["quote"] == "a sentence nobody said" and len(fixes) == 1  # paraphrase not "repaired"
+
+
+def test_truncated_vlm_answer_gets_a_shorten_request_not_a_resend():
+    from epoch_vlm.prompting import load_template, shorten_messages
+    tpl = load_template("prompts/visual_observation.v2.md")
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "frames..."}]}]
+    out = shorten_messages(msgs, "c000", tpl)
+    last = out[-1]["content"][0]["text"]
+    assert "cut off" in last and "c000" in last and "{clip_id}" not in last
+    assert all(m["role"] != "assistant" for m in out)  # the truncated text is not fed back
+    assert "single line" in tpl["SYSTEM"] and "15 words" in tpl["TASK"]

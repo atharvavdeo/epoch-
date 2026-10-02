@@ -119,6 +119,12 @@ def repair_messages(messages: list[dict], previous: str, errors: list[str], clip
     ]
 
 
+def shorten_messages(messages: list[dict], clip_id: str, tpl: dict[str, str]) -> list[dict]:
+    """Repair for an answer cut off at the token limit: ask for a shorter object instead of resending the
+    truncated text (greedy decoding would reproduce the same overlong answer)."""
+    return messages + [{"role": "user", "content": [{"type": "text", "text": tpl["SHORTEN"].replace("{clip_id}", clip_id)}]}]
+
+
 def select_frames(clip: dict, cap: int) -> list[dict]:
     """Deterministic priority selection under a frame cap (D07).
 

@@ -4,7 +4,7 @@ Bundle layout (job.json lists every file with sha256):
   job.json                     clips, frames, context, limits, profiles
   frames/<frame_id>.jpg        448 px base frames (+ 896 px refinement frames)
   runtime/epoch_vlm/*.py       runner code (self-contained)
-  runtime/prompts/visual_observation.v1.md
+  runtime/prompts/visual_observation.v2.md
   runtime/locks/vlm.txt        hashed Colab environment lock
 
 Clip plan (TRD §4): non-overlapping 20 s cores (final shortened; a <2 s tail
@@ -31,12 +31,12 @@ from pipeline.orchestration.stage import StageContext, StageError, StageResult, 
 
 CLIP_MS, CONTEXT_MS, MERGE_TAIL_MS = 20_000, 2_000, 2_000
 DEFAULT_PROFILES = ["Q35-9B-BF16"]  # D17: user-chosen default; 27B only by explicit opt-in
-LIMITS = {"max_input_tokens": 12288, "max_new_tokens": 768, "frame_cap": 32, "refine_frame_cap": 24,
+LIMITS = {"max_input_tokens": 12288, "max_new_tokens": 1024, "frame_cap": 32, "refine_frame_cap": 24,
           "max_base_clips": 45, "max_refinements": 8, "max_repairs": 8, "oom_retry_token_cap": 6144,
           "stop_fail_fraction": 0.2}
 RUNTIME_FILES = ["epoch_vlm/__init__.py", "epoch_vlm/backends.py", "epoch_vlm/fetch.py", "epoch_vlm/preflight.py",
                  "epoch_vlm/prompting.py", "epoch_vlm/runner.py", "epoch_vlm/schema.py",
-                 "prompts/visual_observation.v1.md", "locks/vlm.txt"]
+                 "prompts/visual_observation.v2.md", "locks/vlm.txt"]
 MAX_TRANSCRIPT_CHARS, MAX_OCR_LINES = 2500, 20
 
 
