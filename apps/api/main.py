@@ -553,6 +553,50 @@ def settings_view():
             "models": models}
 
 
+@app.get("/api/v1/runs/{run_id}/prediction")
+def get_prediction(run_id: str):
+    """The text retention model's prediction (rule-based, uncalibrated). 404 for packages built before it existed."""
+    r = _run_row(run_id)
+    rows = read_jsonl(Path(r.dir), "predictions")
+    if not rows:
+        raise ApiError(404, "no_prediction", "this package predates the text retention model; re-run finish and import again")
+    p = rows[0]
+    p.pop("features", None)  # large; only needed server-side for recompute
+    return p
+
+
+class PredictionIn(BaseModel):
+    retention_at_30s: float = Field(gt=0, le=1)
+    retention_at_end: float = Field(gt=0, le=1)
+    acknowledged: bool
+
+
+@app.post("/api/v1/runs/{run_id}/prediction")
+def recompute_prediction(run_id: str, body: PredictionIn):
+    """Same model, same features, different assumed neutral-video anchors. Requires acknowledging assumptions."""
+    from pipeline.predict.model import Anchors, drop_moments, predict
+
+    r = _run_row(run_id)
+    if not body.acknowledged:
+        raise ApiError(409, "assumptions_not_acknowledged", "confirm 'These are assumptions' first")
+    rows = read_jsonl(Path(r.dir), "predictions")
+    if not rows:
+        raise ApiError(404, "no_prediction", "this package predates the text retention model")
+    stored = rows[0]
+    try:
+        p = predict(stored["features"], Anchors(body.retention_at_30s, body.retention_at_end))
+    except ValueError as exc:
+        raise ApiError(422, "invalid_assumptions", str(exc)) from exc
+    quotes = {(m["start_s"], m["end_s"]): m for m in stored["drop_moments"]}
+    moments = []
+    for m in drop_moments(p):
+        old = quotes.get((m["start_s"], m["end_s"]))
+        moments.append({**m, "quote": old.get("quote") if old else None, "issue_ids": old.get("issue_ids", []) if old else []})
+    return {**{k: stored[k] for k in ("prediction_id", "run_id", "feature_info", "created_at")},
+            **{k: p[k] for k in ("model_version", "label", "calibrated", "anchors", "per_second", "summary", "weights", "notes")},
+            "drop_moments": moments, "recomputed": True}
+
+
 class HypotheticalIn(BaseModel):
     retention_at_30s: float = Field(gt=0, le=1)
     retention_at_end: float = Field(gt=0, le=1)

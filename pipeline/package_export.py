@@ -26,7 +26,8 @@ from pipeline.orchestration.settings import REPO_ROOT, lock_path
 from pipeline.orchestration.stage import StageContext, StageError, StageResult, StageSpec
 from pipeline.outputs import OUTPUTS_ROOT, slug
 
-REQUIRED_VIDEO_STAGES = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "visual", "embed", "narrative", "score"]
+REQUIRED_VIDEO_STAGES = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "visual", "embed", "narrative",
+                         "predict", "score"]
 SIGNAL_KEY_FEATURE = {"pause": ("F39", "audio", "pause", "ms"), "clip": ("F46", "audio", "clipping_fraction", "ratio"),
                       "black": ("F06", "visual", "black_interval", "ms"), "shot": ("F04", "visual", "long_shot", "ms"),
                       "wpm": ("F40", "speech", "speech_rate", "words/min")}
@@ -47,9 +48,9 @@ def code_revision() -> str:
 
 
 def export_spec(source: dict) -> StageSpec:
-    return StageSpec(name="export", version="2", deps=("probe", "proxy", "score"),
+    return StageSpec(name="export", version="4", deps=("probe", "proxy", "score"),
                      optional_deps=("audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual", "embed",
-                                    "narrative"),
+                                    "narrative", "predict"),
                      config={"schema": SCHEMA_VERSION, "producer": PRODUCER_VERSION},
                      extra={"project": {k: source["project"][k] for k in ("project_id", "title", "category", "declared_language")},
                             "asset_id": source["asset_id"]})
@@ -226,7 +227,13 @@ def export_stage(source: dict, ws):
         put("data/issues.jsonl", rows=R(issues), kind="data", stage="narrative")
         put("data/suggestions.jsonl", rows=R(suggestions), kind="data", stage="narrative")
         put("data/risk.jsonl", rows=R(risk_rows), kind="data", stage="score")
-        put("data/scenarios.jsonl", rows=[{**s, "base_run_id": run_id} for s in score["scenarios"]], kind="data", stage="score")
+        # scenario ids are scoped to the run: two runs of one video can share identical scoring inputs, and the
+        # website stores scenarios across runs (a shared id collided on import)
+        put("data/scenarios.jsonl", rows=[{**s, "base_run_id": run_id, "scenario_id": det_uuid("scenario", run_id, s["scenario_id"])}
+                                          for s in score["scenarios"]], kind="data", stage="score")
+        if "predict" in d:
+            pr = read_json(d["predict"].path("prediction.json"))
+            put("data/predictions.jsonl", rows=[{**pr, "run_id": run_id}], kind="data", stage="predict")
         put("data/coverage.jsonl", rows=R(coverage), kind="data", stage="score")
 
         project = {**{k: source["project"][k] for k in ("project_id", "title", "category", "declared_language", "created_at",

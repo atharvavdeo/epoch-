@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, fmt, type Scenario } from "../api";
+import { api, fmt, type Prediction, type Scenario } from "../api";
 import { RetentionChart, RiskChart } from "../components/Charts";
 import { Dock } from "../components/Dock";
 import { FindingDetail, FindingsList, prioritise } from "../components/Issues";
 import { Player } from "../components/Player";
+import { PredictionView } from "../components/Prediction";
 import { ShotsView } from "../components/Shots";
 import { Timeline } from "../components/Timeline";
 import { TranscriptPanel } from "../components/TranscriptPanel";
@@ -25,7 +26,9 @@ export default function Review() {
   const tr = useQuery({ queryKey: ["transcript", runId], queryFn: () => api.transcript(runId) });
   const issues = useQuery({ queryKey: ["issues", runId], queryFn: () => api.issues(runId) });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-  const [lower, setLower] = useState<"retention" | "risk" | "shots" | "provenance">("retention");
+  const predQ = useQuery({ queryKey: ["prediction", runId], queryFn: () => api.prediction(runId), retry: false });
+  const [userPred, setUserPred] = useState<Prediction | null>(null);
+  const [lower, setLower] = useState<"predicted" | "retention" | "risk" | "shots" | "provenance">("predicted");
   const [userScenario, setUserScenario] = useState<Scenario | null>(null);
   const { focus, selectedIssue } = usePlayhead();
   const items = issues.data?.items ?? [];
@@ -56,6 +59,7 @@ export default function Review() {
   const covered = (mod: string) => r.coverage.filter((c) => c.modality === mod && c.status === "observed")
     .reduce((t, c) => t + c.interval.end_ms - c.interval.start_ms, 0) / duration;
   const visualPending = "visual" in r.missing_stages;
+  const pred = userPred ?? predQ.data;
 
   const exportFindings = () => download(`findings-${runId.slice(0, 8)}.csv`, ["type,severity,evidence,status,start,end,explanation",
     ...prioritise(items).map((i) => [i.type, i.severity, i.evidence_status, i.review_status, fmt(i.affected_interval.start_ms),
@@ -83,6 +87,8 @@ export default function Review() {
       </div>
 
       <div className="summary">
+        {pred && <span className="item">predicted <b>{pred.summary.apv_pct.central.toFixed(0)}%</b> viewed
+          <span className="faint"> ({pred.summary.apv_pct.lower.toFixed(0)}–{pred.summary.apv_pct.upper.toFixed(0)}%, uncalibrated)</span></span>}
         <span className="item"><b>{high + med}</b> high/medium-priority findings</span>
         <span className="item">earliest title payoff <b>{payoff !== undefined ? fmt(payoff) : "not found"}</b></span>
         <span className="item">speech coverage <b>{Math.round(covered("speech") * 100)}%</b></span>
@@ -102,7 +108,8 @@ export default function Review() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <Timeline duration={duration} chapters={tl.data?.chapters ?? []} issues={items} risk={tl.data?.risk ?? []}
-          scenario={scenario} scenarioAck={scenarioAck} shots={tl.data?.shots ?? []} segments={segments} coverage={tl.data?.coverage ?? []} />
+          scenario={scenario} scenarioAck={scenarioAck} shots={tl.data?.shots ?? []} segments={segments} coverage={tl.data?.coverage ?? []}
+          pred={pred ?? undefined} />
         <div className="legend">
           <span><span className="swatch" style={{ background: "var(--sev-high)" }} />high</span>
           <span><span className="swatch" style={{ background: "var(--sev-medium)" }} />medium</span>
@@ -124,10 +131,13 @@ export default function Review() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="tabs">
-          {(["retention", "risk", "shots", "provenance"] as const).map((t) => (
+          {(["predicted", "retention", "risk", "shots", "provenance"] as const).map((t) => (
             <button key={t} className={lower === t ? "on" : ""} onClick={() => setLower(t)}>
-              {t === "retention" ? "Estimated retention" : t === "risk" ? "Risk by track" : t === "shots" ? "Shots" : "What was analysed"}</button>))}
+              {t === "predicted" ? "Predicted retention" : t === "retention" ? "Findings-based scenario" : t === "risk" ? "Risk by track"
+                : t === "shots" ? "Shots" : "What was analysed"}</button>))}
         </div>
+        {lower === "predicted" && (pred ? <PredictionView runId={runId} pred={pred} onPred={setUserPred} />
+          : <p className="muted">{predQ.isLoading ? "Loading prediction…" : "This package was built before the text retention model. Re-run finish and import the new package."}</p>)}
         {lower === "risk" && tl.data && <RiskChart bins={tl.data.risk} duration={duration} chapters={tl.data.chapters} />}
         {lower === "retention" && <RetentionChart runId={runId} scenario={scenario} duration={duration}
           ack={!!userScenario} onScenario={setUserScenario} />}

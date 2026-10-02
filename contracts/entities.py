@@ -663,6 +663,57 @@ class RetentionScenario(Record):
     created_at: Timestamp
 
 
+# ------------------------------------------------------------- prediction
+# Text retention model (pipeline/predict). Rule-based priors, never calibrated in P1: `calibrated` is pinned
+# False so a package cannot claim otherwise.
+
+
+class PredictionSecond(Record):
+    t: int = Field(ge=0)
+    retention: Unit
+    lower: Unit
+    upper: Unit
+    neutral: Unit
+    loss: Unit
+    excess_loss: Unit
+    contributions: dict[str, Unit]
+    protective: list[str]
+
+
+class DropReason(Record):
+    feature: str
+    share: Unit
+    text: str
+
+
+class DropMoment(Record):
+    start_s: int = Field(ge=0)
+    end_s: int = Field(ge=0)
+    excess_loss: Unit
+    retention_before: Unit
+    retention_after: Unit
+    reasons: list[DropReason]
+    quote: str | None = None
+    issue_ids: list[UUIDStr] = Field(default_factory=list)
+
+
+class RetentionPrediction(Record):
+    prediction_id: UUIDStr
+    run_id: UUIDStr
+    model_version: str
+    label: str
+    calibrated: Literal[False]
+    anchors: dict[str, Unit]
+    features: list[dict[str, Unit]]
+    per_second: list[PredictionSecond]
+    summary: dict[str, Any]
+    drop_moments: list[DropMoment]
+    weights: dict[str, Any]
+    notes: list[str]
+    feature_info: dict[str, Any]
+    created_at: Timestamp
+
+
 # ------------------------------------------------------------------ package
 
 

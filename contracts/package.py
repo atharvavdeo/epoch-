@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from contracts.common import SCHEMA_VERSION, check_interval_in_asset
 from contracts.entities import (
     Asset, Coverage, EditSuggestion, Evidence, Frame, Issue, Manifest, Observation, OCRTrack, Project, Promise,
-    RetentionScenario, RiskBin, Run, Shot, Signal, TranscriptSegment, Word,
+    RetentionPrediction, RetentionScenario, RiskBin, Run, Shot, Signal, TranscriptSegment, Word,
 )
 
 GiB, MiB = 1024 ** 3, 1024 ** 2
@@ -30,10 +30,13 @@ LIMITS = {"zip_bytes": 2 * GiB, "expanded_bytes": 5 * GiB, "entries": 20_000, "j
 ALLOWED_SUFFIX = {".json", ".jsonl", ".jpg", ".mp4", ".txt", ".md"}
 JSONL_MODELS = {"transcript": TranscriptSegment, "words": Word, "shots": Shot, "frames": Frame, "ocr": OCRTrack,
                 "signals": Signal, "observations": Observation, "evidence": Evidence, "promises": Promise, "issues": Issue,
-                "suggestions": EditSuggestion, "risk": RiskBin, "scenarios": RetentionScenario, "coverage": Coverage}
+                "suggestions": EditSuggestion, "risk": RiskBin, "scenarios": RetentionScenario, "coverage": Coverage,
+                "predictions": RetentionPrediction}
+OPTIONAL_JSONL = {"predictions"}  # added after the first packages shipped; older packages stay importable
 STAGE_OF_FILE = {"transcript": "align", "words": "align", "shots": "video_scan", "frames": "frames", "ocr": "ocr",
                  "signals": "score", "observations": "visual", "evidence": "narrative", "promises": "narrative",
-                 "issues": "narrative", "suggestions": "narrative", "risk": "score", "scenarios": "score"}
+                 "issues": "narrative", "suggestions": "narrative", "risk": "score", "scenarios": "score",
+                 "predictions": "predict"}
 
 
 class PackageError(Exception):
@@ -176,6 +179,9 @@ def validate_package(path: Path) -> ValidatedPackage:
                 stage = STAGE_OF_FILE.get(key)
                 if key == "coverage":
                     raise PackageError("missing_file", "data/coverage.jsonl is always required")
+                if key in OPTIONAL_JSONL:
+                    records[key] = []
+                    continue
                 if stage not in manifest.missing_stage_names:
                     raise PackageError("missing_file", f"{name} absent but stage '{stage}' is not declared missing")
                 records[key] = []

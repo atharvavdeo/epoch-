@@ -53,6 +53,18 @@ export type Evaluation = { runs: EvalRun[]; unvalidated: string[] };
 export type Settings = { data_dir: string; cerebras: { configured: boolean; base_url: string; model: string | null };
   asr_threads: string; sent_to_cerebras: string; models: { role: string; model_id: string; revision: string; present: boolean }[] };
 
+type Range3 = { central: number; lower: number; upper: number };
+export type PredSecond = { t: number; retention: number; lower: number; upper: number; neutral: number; loss: number;
+  excess_loss: number; contributions: Record<string, number>; protective: string[] };
+export type DropMoment = { start_s: number; end_s: number; excess_loss: number; retention_before: number; retention_after: number;
+  reasons: { feature: string; share: number; text: string }[]; quote: string | null; issue_ids: string[] };
+export type Prediction = { prediction_id: string; model_version: string; label: string; calibrated: false;
+  anchors: { retention_at_30s: number; retention_at_end: number }; per_second: PredSecond[];
+  summary: { duration_s: number; avd_s: Range3; apv_pct: Range3; end_pct: Range3; neutral_avd_s: number; neutral_end_pct: number;
+    excess_loss_by_feature: Record<string, number> };
+  drop_moments: DropMoment[]; weights: Record<string, { weight: number; reason: string; rationale: string }>; notes: string[];
+  feature_info: { sources: string[]; median_wpm?: number | null }; recomputed?: boolean };
+
 export class ApiError extends Error {
   constructor(public code: string, message: string, public action?: string | null) { super(message); }
 }
@@ -101,6 +113,9 @@ export const api = {
     assumed_resolved_issue_ids: string[] }) => call<Hypothetical>(`/runs/${run}/hypothetical`, json("POST", a)),
   evaluation: () => call<Evaluation>("/evaluation"),
   settings: () => call<Settings>("/settings"),
+  prediction: (run: string) => call<Prediction>(`/runs/${run}/prediction`),
+  repredict: (run: string, a: { retention_at_30s: number; retention_at_end: number; acknowledged: boolean }) =>
+    call<Prediction>(`/runs/${run}/prediction`, json("POST", a)),
   artifactUrl: (run: string, art: string) => `/api/v1/runs/${run}/artifacts/${art}`,
 };
 

@@ -122,7 +122,10 @@ def run_finish(ws, source: dict, *, force: set[str] | None = None) -> bool:
     if ws.current("visual") is None:
         print("[note] no Colab visual result attached: visual track will be UNKNOWN and the package partial")
     ok = True
-    steps = [embed_spec_and_fn(source), (narrative_spec(source), narrative_stage(source)), (score_spec(), score_stage(source)),
+    from pipeline.predict.stage import predict_spec, predict_stage
+
+    steps = [embed_spec_and_fn(source), (narrative_spec(source), narrative_stage(source)),
+             (predict_spec(source), predict_stage(source)), (score_spec(), score_stage(source)),
              (export_spec(source), export_stage(source, ws))]
     for spec, fn in steps:
         rec = run_stage(ws, spec, fn, force=spec.name in force)

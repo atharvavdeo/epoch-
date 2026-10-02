@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { fmt, type Coverage, type Interval, type Issue, type RiskBin, type Scenario, type Segment, type Signal } from "../api";
+import { fmt, type Coverage, type Interval, type Issue, type Prediction, type RiskBin, type Scenario, type Segment, type Signal } from "../api";
+import { FEATURE_LABEL } from "./Prediction";
 import { usePlayhead } from "../store";
 
 const LABEL: Record<string, string> = {
@@ -15,8 +16,8 @@ type ShotLite = { shot_id: string; interval: Interval; metrics: Record<string, n
 const pctFmt = (v: number) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
 
 /** Full-width shared timeline (Review spec): every lane seeks the same playhead and sets the same selection. */
-export function Timeline({ duration, chapters, issues, risk, scenario, scenarioAck, shots, segments, coverage }: {
-  duration: number; chapters: Signal[]; issues: Issue[]; risk: RiskBin[]; scenario?: Scenario; scenarioAck: boolean;
+export function Timeline({ duration, chapters, issues, risk, scenario, scenarioAck, shots, segments, coverage, pred }: {
+  duration: number; chapters: Signal[]; issues: Issue[]; risk: RiskBin[]; scenario?: Scenario; scenarioAck: boolean; pred?: Prediction;
   shots: ShotLite[]; segments: Segment[]; coverage: Coverage[];
 }) {
   const { currentMs, focus, selectedIssue, selection } = usePlayhead();
@@ -51,6 +52,15 @@ export function Timeline({ duration, chapters, issues, risk, scenario, scenarioA
   // retention mini-chart path (0..1 → 0..36 px), band between lower and upper
   const H = 36;
   const retPath = useMemo(() => {
+    if (pred) {  // text retention model: predicted curve + sensitivity band
+      const ps = pred.per_second, n = ps.length;
+      const x = (t: number) => (1000 * (t + 1)) / n;
+      const y = (v: number) => H - v * H;
+      const up = ps.map((p) => `${x(p.t)},${y(p.upper)}`).join(" ");
+      const lo = [...ps].reverse().map((p) => `${x(p.t)},${y(p.lower)}`).join(" ");
+      return { band: `0,${y(1)} ${up} ${lo} 0,${y(1)}`, base: `0,${y(1)} ${ps.map((p) => `${x(p.t)},${y(p.neutral)}`).join(" ")}`,
+        line: `0,${y(1)} ${ps.map((p) => `${x(p.t)},${y(p.retention)}`).join(" ")}` as string | null };
+    }
     if (!scenario) return null;
     const pts = scenario.bins;
     const x = (ms: number) => (1000 * ms) / duration;
@@ -58,8 +68,8 @@ export function Timeline({ duration, chapters, issues, risk, scenario, scenarioA
     const up = pts.map((b) => `${x(b.end_ms)},${y(b.retention_end.upper)}`).join(" ");
     const lo = [...pts].reverse().map((b) => `${x(b.end_ms)},${y(b.retention_end.lower)}`).join(" ");
     const base = pts.map((b) => `${x(b.end_ms)},${y(b.baseline_end)}`).join(" ");
-    return { band: `0,${y(1)} ${up} ${lo} 0,${y(1)}`, base: `0,${y(1)} ${base}` };
-  }, [scenario, duration]);
+    return { band: `0,${y(1)} ${up} ${lo} 0,${y(1)}`, base: `0,${y(1)} ${base}`, line: null as string | null };
+  }, [scenario, duration, pred]);
 
   const hv = hover ? (() => {
     const b = binAt(hover.ms);
@@ -68,14 +78,15 @@ export function Timeline({ duration, chapters, issues, risk, scenario, scenarioA
       .sort((p, q) => ["high", "medium", "low"].indexOf(p.severity) - ["high", "medium", "low"].indexOf(q.severity))[0];
     const inspected = b ? TRACKS.filter((t) => (b.track_values[t]?.coverage ?? 0) >= 0.999) : [];
     const notInspected = b ? TRACKS.filter((t) => (b.track_values[t]?.coverage ?? 0) < 0.999) : TRACKS;
-    return { b, sb, dom, inspected, notInspected };
+    const ps = pred?.per_second[Math.min(pred.per_second.length - 1, Math.floor(hover.ms / 1000))];
+    return { b, sb, dom, inspected, notInspected, ps };
   })() : null;
 
   return (
     <div className="tl2">
       <div className="tl2-labels">
         <span style={{ height: 22 }} />
-        <span>Chapters</span><span style={{ height: H }}>Retention</span><span>Risk</span>
+        <span>Chapters</span><span style={{ height: H }}>{pred ? "Predicted" : "Retention"}</span><span>Risk</span>
         {lanes.map((_, i) => <span key={i}>{i === 0 ? "Findings" : ""}</span>)}
         <span>Shots</span><span>Speech</span><span>On-screen text</span>
       </div>
@@ -92,11 +103,12 @@ export function Timeline({ duration, chapters, issues, risk, scenario, scenarioA
               onClick={() => focus(c.interval, null)}>{wide ? label : ""}</button>;
           })}
         </div>
-        <div className="tl2-row" style={{ height: H }} onClick={clickBin} title="Estimated retention — uncalibrated scenario">
+        <div className="tl2-row" style={{ height: H }} onClick={clickBin} title={pred ? pred.label : "Estimated retention — uncalibrated scenario"}>
           {retPath ? (
-            <svg viewBox={`0 0 1000 ${H}`} preserveAspectRatio="none" width="100%" height={H} style={{ display: "block", opacity: scenarioAck ? 1 : 0.5 }}>
+            <svg viewBox={`0 0 1000 ${H}`} preserveAspectRatio="none" width="100%" height={H} style={{ display: "block", opacity: pred || scenarioAck ? 1 : 0.5 }}>
               <polygon points={retPath.band} fill="rgba(217,138,30,.35)" />
               <polyline points={retPath.base} fill="none" stroke="#a9a5a0" strokeDasharray="4 3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+              {retPath.line && <polyline points={retPath.line} fill="none" stroke="var(--amber-300)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />}
             </svg>) : <span className="faint" style={{ fontSize: 12 }}>no scenario</span>}
         </div>
         <div className="tl2-row" onClick={clickBin}>
@@ -149,7 +161,12 @@ export function Timeline({ duration, chapters, issues, risk, scenario, scenarioA
         {hover && hv && (
           <div className="tl-tip" style={{ left: Math.min(hover.x + 14, (ref.current?.clientWidth ?? 600) - 290) }}>
             <div className="mono" style={{ color: "var(--text-primary)" }}>{fmt(hover.ms)}</div>
-            {hv.sb && (scenarioAck
+            {hv.ps && <div>Predicted still watching: <b>{pctFmt(hv.ps.retention)}</b> <span className="faint">({pctFmt(hv.ps.lower)}–{pctFmt(hv.ps.upper)})</span>
+              {Object.keys(hv.ps.contributions).length > 0 && <div>Why viewers leave here: <b>{Object.entries(hv.ps.contributions).sort((p, q) => q[1] - p[1])
+                .slice(0, 2).map(([k]) => FEATURE_LABEL[k] ?? k).join(", ")}</b></div>}
+              {hv.ps.protective.length > 0 && <div className="faint">Holding viewers: {hv.ps.protective.map((k) => FEATURE_LABEL[k] ?? k).join(", ")}</div>}
+              <div className="faint">rule-based text model, uncalibrated</div></div>}
+            {!pred && hv.sb && (scenarioAck
               ? <div>Est. viewers remaining: <b>{hv.sb.retention_end.central !== null ? pctFmt(hv.sb.retention_end.central)
                   : `${pctFmt(hv.sb.retention_end.lower)}–${pctFmt(hv.sb.retention_end.upper)}`}</b>
                   {hv.sb.absolute_drop && <> · loss this 5 s: {hv.sb.absolute_drop.central !== null ? pctFmt(hv.sb.absolute_drop.central)

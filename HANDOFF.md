@@ -34,6 +34,16 @@ Written 2026-10-03 at commit `db430eb` (plus this file), on the Windows laptop w
 > - **Script-only mode backend is NOT built.** The "I have a transcript/script" route previews and parses the file client-side, but `POST /projects/{id}/script` and the `analyze-script` CLI do not exist yet.
 > - The vision runner's contiguous-label fix is unit-level only.
 
+> **Text retention predictor v1 — BUILT and run end to end (2026-10-03):**
+> - `pipeline/predict/` (`features.py`, `model.py`, `stage.py`): new `predict` stage between narrative and score. Rule-based proportional-hazards model over 1-s bins, built from transcript, word timing, structure spans and the waveform. **Uncalibrated, with no audience data** (owner's choice). `calibrated: false` is pinned in the contract.
+> - Neutral baseline: a video with no features keeps 80% at 30 s and 45% at the end (user-editable anchors). Band = every weight ×0.5 / ×1.5.
+> - 14 features. Their weights and rationales are visible in the UI under "How this model works".
+> - Test video: predicted average watch 469 s (55.1%, band 49.5–59.1%), 39.9% at the end, 8 drop moments. The biggest drivers are a 29 s setup before the first point and no early hook. Repetition is flagged only at 5:38–6:07 (the intro replay), plus a little at 11:29 and 13:16.
+> - Package export v4 ships `data/predictions.jsonl` (optional in validation, so older packages still import). It also scopes scenario ids per run (`det_uuid("scenario", run_id, id)`), which fixed a UNIQUE collision when a second run of the same video was imported.
+> - API: `GET/POST /runs/{id}/prediction` (POST recomputes with new anchors and needs `acknowledged`). UI: "Predicted retention" is the default lower tab, the timeline lane shows the predicted curve plus band and a "why viewers leave here" hover, and the summary shows predicted % viewed.
+> - Imported as run `1cd55a87` and verified in the browser through the DOM (no console errors).
+> - **Not validated:** no real audience-retention curve has been compared yet. Weights are priors. The first validation step is to load YouTube Studio retention CSVs for a few videos and fit or check the weights.
+
 Read §0 and §3 before touching anything.
 
 Reading order for the new machine:
