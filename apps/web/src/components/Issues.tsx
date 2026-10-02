@@ -64,6 +64,8 @@ export function IssueCard({ runId, issue, segments }: { runId: string; issue: Is
       </div>
       <p style={{ margin: "8px 0 4px" }}>{issue.explanation}</p>
       <p className="muted" style={{ margin: 0 }}><b>Why it might be fine:</b> {issue.counter_explanation}</p>
+      {!issue.suggestions.length && (
+        <div className="edit muted">No safe edit proposed: the suggested rewrite would have removed too much of the original, so it was discarded.</div>)}
       {issue.suggestions.map((s) => (
         <div className="edit" key={s.suggestion_id}>
           <div className="row"><b>{OP[s.operation]}</b>

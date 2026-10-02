@@ -87,14 +87,15 @@ def embed_spec_and_fn(source: dict):
     from pipeline.local_models import manifest, model_fingerprint, offline_env
     from pipeline.orchestration.stage import StageResult, StageSpec
 
-    spec = StageSpec(name="embed", version="1", env="asr", deps=("align",),
+    spec = StageSpec(name="embed", version="3", env="asr", deps=("align",),
                      config={"chunk_words": [100, 200], "top_k": 3, "min_cos": 0.85, "prefix": "passage: "},
-                     extra={"model": model_fingerprint("embed")})
+                     extra={"model": model_fingerprint("embed"), "title": source["project"]["title"]})
 
     def fn(ctx):
         res = ctx.run_subprocess("pipeline.reasoning.embed_stage", {
             "transcript": str(ctx.dep("align").path("transcript.json")),
-            "model_dir": manifest("embed")["snapshot_dir"], "threads": 4}, extra_env=offline_env())
+            "model_dir": manifest("embed")["snapshot_dir"], "threads": 4,
+            "title": source["project"]["title"]}, extra_env=offline_env())
         return StageResult(res["status"], res.get("summary", {}))
 
     return spec, fn

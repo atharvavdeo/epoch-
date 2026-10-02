@@ -518,7 +518,8 @@ class Issue(Record):
     evidence_ids: list[EvidenceId] = Field(min_length=1)
     explanation: str = Field(min_length=1, max_length=2000)
     counter_explanation: str = Field(min_length=1, max_length=2000)
-    suggested_edit_ids: list[UUIDStr] = Field(min_length=1)
+    # R-02: may be empty when every proposed edit failed the content-retention guard (no safe edit)
+    suggested_edit_ids: list[UUIDStr] = Field(default_factory=list)
     review_status: Literal["open", "accepted", "dismissed"] = "open"
     cause_group_id: UUIDStr
     comparison_intervals: list[Interval] | None = None

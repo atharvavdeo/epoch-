@@ -28,7 +28,7 @@ from pipeline.reasoning.candidates import (
     speech_rates,
 )
 
-PROMPT = REPO_ROOT / "prompts" / "narrative.v2.md"
+PROMPT = REPO_ROOT / "prompts" / "narrative.v3.md"
 MAX_CALLS, PER_CALL = 12, 4
 INPUT_CHAR_BUDGET = 22_000  # ~8k tokens incl. instructions (TRD §5)
 ROLES = ["cold_open", "greeting_intro", "hook", "setup", "main_content", "example_demo", "tangent", "sponsor", "cta",
@@ -158,6 +158,20 @@ def candidates_text(batch: list[tuple[str, dict]]) -> str:
     return "\n\n".join(out)
 
 
+REWRITE_MIN_RETENTION = 0.4
+RETENTION_ERR = "of the original passage's content words"
+
+
+def content_retention(original: str, proposed: str) -> float | None:
+    """Share of the original's distinct content words that survive in the rewrite (None if nothing to compare)."""
+    from pipeline.reasoning.candidates import _STOP
+    import re
+
+    tok = lambda t: {w for w in re.findall(r"[^\W_]+", t.lower()) if w not in _STOP and len(w) > 2}  # noqa: E731
+    o = tok(original)
+    return len(o & tok(proposed)) / len(o) if len(o) >= 8 else None
+
+
 def validate_adjudication(obj: dict, batch: list[tuple[str, dict]]) -> list[str]:
     errs = []
     by = {k: c for k, c in batch}
@@ -183,6 +197,12 @@ def validate_adjudication(obj: dict, batch: list[tuple[str, dict]]) -> list[str]
             errs.append(f"{d['candidate']}: edit_option must be one of {list(opts)}")
         elif opts[d["edit_option"]]["operation"] in ("rewrite",) and d["verdict"] == "accept" and not d["proposed_text"].strip():
             errs.append(f"{d['candidate']}: rewrite option needs proposed_text")
+        if (d["verdict"] == "accept" and d["edit_option"] in opts and opts[d["edit_option"]]["operation"] == "rewrite"
+                and d["proposed_text"].strip()):
+            kept = content_retention(c.get("_opt_text", {}).get(d["edit_option"], ""), d["proposed_text"])
+            if kept is not None and kept < REWRITE_MIN_RETENTION:
+                errs.append(f"{d['candidate']}: proposed_text keeps only {kept:.0%} of the original passage's content words; "
+                            "a rewrite may remove repetition or filler but must keep every point, example and question")
         if d["verdict"] == "accept" and (not d["explanation"].strip() or not d["counter_explanation"].strip()):
             errs.append(f"{d['candidate']}: explanation and counter_explanation are required")
     missing = set(by) - seen
@@ -260,15 +280,21 @@ def salvage_decisions(obj: dict | None, batch: list[tuple[str, dict]]) -> dict:
     for d in obj["decisions"]:
         k = d["candidate"]
         single = [(kk, c) for kk, c in batch if kk == k]
-        if single and k not in out and not validate_adjudication({"decisions": [d]}, single):
+        if not single or k in out:
+            continue
+        errs = validate_adjudication({"decisions": [d]}, single)
+        if not errs:
             out[k] = d
+        elif all(RETENTION_ERR in e for e in errs):
+            # diagnosis is valid, the edit is not: keep the finding, drop the destructive edit
+            out[k] = {**d, "_unsafe_edit": True}
     return out
 
 
 # --------------------------------------------------------------------- stage
 
 def narrative_spec(source: dict) -> StageSpec:
-    return StageSpec(name="narrative", version="4", deps=("align", "embed", "probe", "video_scan", "audio"),
+    return StageSpec(name="narrative", version="9", deps=("align", "embed", "probe", "video_scan", "audio"),
                      optional_deps=("asr", "visual"),
                      config={"max_calls": MAX_CALLS, "per_call": PER_CALL, "char_budget": INPUT_CHAR_BUDGET,
                              "thresholds": {"intro_ms": 20000, "payoff_ms": 60000, "pause_ms": 2000, "static_shot_ms": 15000,
@@ -347,7 +373,7 @@ def narrative_stage(source: dict, llm_factory=None):
         long_static = [s for s in shots if s["end_ms"] - s["start_ms"] >= 15_000 and (s["metrics"].get("motion_mean") or 0) < 0.02]
         builder = CandidateBuilder({
             "book": book, "segments": segments, "chunk_by_id": chunk_by_id, "seg_by_id": seg_by_id, "duration_ms": T,
-            "structure": st, "pairs": pairs, "pauses": find_pauses(vad, audio.get("silence", []), T, audio.get("rms")), "rushed": rushed,
+            "structure": st, "pairs": pairs, "pauses": find_pauses(vad, audio.get("silence", []), T, audio.get("rms")), "rushed": rushed, "words": tr.get("words", []),
             "clip_windows": merge_clip_windows(audio.get("clipping_windows", [])),
             "true_peak": (audio.get("loudness") or {}).get("true_peak_dbfs"), "black": filters["black"],
             "observations": obs, "obs_ev": obs_ev, "long_static_shots": long_static,
@@ -358,6 +384,10 @@ def narrative_stage(source: dict, llm_factory=None):
             c["kid"] = f"K{i + 1:02d}"
             c["_ev_short"] = [(f"E{j + 1:02d}", ev) for j, ev in enumerate(c["evidence"])]
             c["_ev_text"] = {s: ev[1] for s, ev in c["_ev_short"]}
+            c["_opt_text"] = {o["id"]: " ".join(sg["text"] for sg in segments if o.get("interval")
+                                                and sg["interval"]["end_ms"] > o["interval"]["start_ms"]
+                                                and sg["interval"]["start_ms"] < o["interval"]["end_ms"])
+                              for o in c["options"]}
         obs_by_ev = {v: k for k, v in obs_ev.items()}
         ctx.log(f"{len(cands)} candidates: " + ", ".join(f"{t}={sum(c['type'] == t for c in cands)}"
                                                        for t in sorted({c['type'] for c in cands})))
@@ -418,10 +448,11 @@ def derive_structure(s: dict, chunk_by_id: dict, seg_by_id: dict, T: int) -> dic
         seg = locate_quote(quote, segs) if quote else None
         return dict(seg["interval"]) if seg else {"start_ms": ch["start_ms"], "end_ms": ch["end_ms"]}
 
-    hook_ms = None
+    hook_ms = hook_end_ms = None
     if s["hook"]["kind"] != "none":
         iv = quote_iv(s["hook"]["chunk"], s["hook"]["quote"])
         hook_ms = iv["start_ms"] if iv else None
+        hook_end_ms = iv["end_ms"] if iv else None
     first_sub = start(s["first_substance_chunk"])
     promises = []
     for i, o in enumerate(s["title_obligations"]):
@@ -452,7 +483,7 @@ def derive_structure(s: dict, chunk_by_id: dict, seg_by_id: dict, T: int) -> dic
         if iv:
             spans.append({"kind": sp["kind"], "quote": sp["quote"], "note": sp["note"], "chunk": sp["chunk"], "interval": iv})
     greet = [sp for sp in spans if sp["kind"] == "greeting"]
-    return {"hook_ms": hook_ms, "hook": s["hook"], "first_substance_ms": first_sub, "promises": promises,
+    return {"hook_ms": hook_ms, "hook_end_ms": hook_end_ms, "hook": s["hook"], "first_substance_ms": first_sub, "promises": promises,
             "chapters": chapters, "spans": spans, "intro_cut_start_ms": 0 if not greet else 0}
 
 
@@ -502,22 +533,23 @@ def build_issues(cands, decisions, book, obs_by_ev, source, segments):
         status = "provisional" if (c["absence"] or not precise or source["kind"] == "script") else "supported"
         iid = det_uuid("issue", source["sha256"], c["type"], c["interval"]["start_ms"], c["interval"]["end_ms"])
         opt = next(o for o in c["options"] if o["id"] == d["edit_option"])
-        sid = det_uuid("suggestion", iid, opt["id"])
+        sid = None if d.get("_unsafe_edit") else det_uuid("suggestion", iid, opt["id"])
         op = opt["operation"]
         dest = opt.get("destination_ms")
         src_iv = opt.get("interval")
         if op == "insert_visual" and dest is None:
             dest = src_iv["start_ms"]
-        suggestions.append({"suggestion_id": sid, "issue_ids": [iid], "operation": op, "source_interval": src_iv,
-                            "destination_ms": dest if op in ("move", "insert_visual") else None,
-                            "proposed_text": d["proposed_text"].strip() or None if op in ("rewrite", "insert_visual") else None,
-                            "rationale": (_mechanism(op, src_iv, dest) + " " + d["edit_rationale"]).strip()[:2000],
-                            "prerequisites": [], "requires_reanalysis": op != "cut"})
+        if sid is not None:
+            suggestions.append({"suggestion_id": sid, "issue_ids": [iid], "operation": op, "source_interval": src_iv,
+                                "destination_ms": dest if op in ("move", "insert_visual") else None,
+                                "proposed_text": d["proposed_text"].strip() or None if op in ("rewrite", "insert_visual") else None,
+                                "rationale": (_mechanism(op, src_iv, dest) + " " + d["edit_rationale"]).strip()[:2000],
+                                "prerequisites": [], "requires_reanalysis": op != "cut"})
         issues.append({"issue_id": iid, "type": c["type"], "affected_interval": c["interval"],
                        "modality_tags": sorted(modal) or ["speech"], "risk_track": ISSUE_TRACK[c["type"]],
                        "severity": d["severity"], "evidence_status": status, "evidence_ids": eids,
                        "explanation": d["explanation"][:2000], "counter_explanation": d["counter_explanation"][:2000],
-                       "suggested_edit_ids": [sid], "review_status": "open",
+                       "suggested_edit_ids": [sid] if sid else [], "review_status": "open",
                        "cause_group_id": det_uuid("cause", c["type"], c["interval"]["start_ms"], c["interval"]["end_ms"]),
                        "comparison_intervals": [c["comparison"]] if c.get("comparison") else None, "review_reason": None,
                        "_kinds": sorted(kinds), "_candidate": c["kid"]})

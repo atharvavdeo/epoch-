@@ -63,6 +63,37 @@ class CandidateBuilder:
         self.items: list[dict] = []
 
     # helpers -------------------------------------------------------------
+    def snap_to_sentences(self, iv: dict) -> dict:
+        """Move edit boundaries to sentence boundaries using aligned word times (ASR segments break mid-sentence).
+        Start moves back to the first word after the previous . ? !; end moves forward to the next word ending in
+        . ? !. Unaligned words leave that boundary unchanged."""
+        words = [w for w in self.c.get("words", []) if w.get("start_ms") is not None]
+        if not words:
+            return dict(iv)
+        a, b = iv["start_ms"], iv["end_ms"]
+        ends = lambda w: w["text"].rstrip("\"')”").endswith((".", "?", "!"))  # noqa: E731
+        before = [w for w in words if w["start_ms"] < a]
+        first_in = next((w for w in words if w["start_ms"] >= a), None)
+        if before and not ends(before[-1]):
+            k = len(before) - 1
+            while k > 0 and not ends(before[k - 1]):
+                k -= 1
+            a = before[k]["start_ms"]
+        elif first_in:
+            a = first_in["start_ms"]
+        inside = [w for w in words if a <= w["start_ms"] < b]
+        if inside and not ends(inside[-1]):
+            nxt = next((w for w in words if w["start_ms"] >= b and ends(w)), None)
+            if nxt and nxt["end_ms"] - b <= 15_000:
+                b = nxt["end_ms"]
+        elif inside:
+            b = inside[-1]["end_ms"]
+        return {"start_ms": a, "end_ms": b}
+
+    def _first_seg_iv(self, iv: dict) -> dict:
+        segs = self.segs_in(iv["start_ms"], iv["end_ms"])
+        return dict(segs[0]["interval"]) if segs else dict(iv)
+
     def segs_in(self, a: int, b: int) -> list[dict]:
         return [s for s in self.c["segments"] if _ov(s["interval"]["start_ms"], s["interval"]["end_ms"], a, b)]
 
@@ -109,11 +140,16 @@ class CandidateBuilder:
         sub = st.get("first_substance_ms")
         if sub is not None and sub >= INTRO_MIN_MS:
             hook = st.get("hook_ms")
+            # edits keep the hook: only the setup between the end of the hook and the first point is touched
+            h_end = st.get("hook_end_ms")
+            setup = {"start_ms": h_end if h_end is not None and h_end < sub else 0, "end_ms": sub}
+            setup = self.snap_to_sentences(setup)
             self.add("slow_intro", 0, sub, self.ev_span(0, sub), [
-                {"id": "O1", "operation": "cut", "interval": {"start_ms": st.get("intro_cut_start_ms", 0), "end_ms": sub},
-                 "desc": f"cut the opening up to {mmss(sub)} where the topic starts"},
-                {"id": "O2", "operation": "rewrite", "interval": {"start_ms": 0, "end_ms": min(sub, 15_000)},
-                 "desc": "rewrite the first line into a concrete hook drawn from the video's own content"}],
+                {"id": "O1", "operation": "rewrite", "interval": setup,
+                 "desc": f"tighten the setup {mmss(setup['start_ms'])}-{mmss(setup['end_ms'])} after the hook; keep the hook "
+                         "and every point, only remove words"},
+                {"id": "O2", "operation": "cut", "interval": setup,
+                 "desc": f"cut the setup {mmss(setup['start_ms'])}-{mmss(setup['end_ms'])} so the first point follows the hook"}],
                 f"substantive content starts at {mmss(sub)}" + (f"; hook at {mmss(hook)}" if hook is not None else "; no hook found"))
         for p in st.get("promises", []):
             first = p.get("first_fulfil_ms")
@@ -133,11 +169,28 @@ class CandidateBuilder:
                     {"id": "O1", "operation": "rewrite", "interval": self.c["last_chunk_iv"],
                      "desc": "close the loop in the ending with a line that answers the promise from material already in the video"}],
                     f"title promise \"{p['obligation']}\" judged {p['status']} by the structure pass", absence=True)
-        for i, sp in enumerate([s for s in st.get("spans", []) if s["kind"] == "tangent_candidate"][:MAX_PER_TYPE["tangent"]]):
+        # A tangent label from the structure pass must be backed by measurement: the span's paragraphs must be
+        # title-relevance outliers (> 2.5 robust deviations below the video's median e5 title similarity).
+        # A "lowest quarter" rule always flags something; on the test video it flagged the core lesson.
+        tc = sorted(c["title_cos"] for c in self.c["chunk_by_id"].values() if "title_cos" in c)
+        q1 = None
+        if len(tc) >= 6:
+            med = tc[len(tc) // 2]
+            mad = sorted(abs(x - med) for x in tc)[len(tc) // 2]
+            q1 = med - 2.5 * max(mad, 0.005)
+        tangents = []
+        for sp in [s for s in st.get("spans", []) if s["kind"] == "tangent_candidate"]:
+            cs = [c["title_cos"] for c in self.c["chunk_by_id"].values() if "title_cos" in c
+                  and _ov(c["start_ms"], c["end_ms"], sp["interval"]["start_ms"], sp["interval"]["end_ms"])]
+            if q1 is not None and cs and max(cs) < q1:
+                tangents.append({**sp, "note": f"{sp.get('note', '')}; title relevance {max(cs):.3f} is an outlier "
+                                               f"for this video (threshold {q1:.3f})"})
+        for i, sp in enumerate(tangents[:MAX_PER_TYPE["tangent"]]):
             iv = sp["interval"]
             self.add("tangent", iv["start_ms"], iv["end_ms"], self.ev_span(iv["start_ms"], iv["end_ms"]), [
                 {"id": "O1", "operation": "cut", "interval": iv, "desc": f"cut {mmss(iv['start_ms'])}-{mmss(iv['end_ms'])}"},
-                {"id": "O2", "operation": "rewrite", "interval": iv, "desc": "condense into one sentence that links back to the topic"}],
+                {"id": "O2", "operation": "rewrite", "interval": self._first_seg_iv(iv),
+                 "desc": "rewrite only the first sentence to add a bridge back to the title topic; keep the rest"}],
                 sp.get("note", "possible drift from the title topic"))
         ctas = [s for s in st.get("spans", []) if s["kind"] in ("cta", "sponsor")]
         for sp in ctas[:MAX_PER_TYPE["disruptive_cta"]]:
@@ -151,16 +204,29 @@ class CandidateBuilder:
                 {"id": "O2", "operation": "cut", "interval": iv, "desc": "cut it"}],
                 f"{sp['kind']} at {mmss(iv['start_ms'])}")
         recap_spans = [s["interval"] for s in st.get("spans", []) if s["kind"] in ("recap", "outro")]
-        for pair in self.c["pairs"][:MAX_PER_TYPE["unnecessary_repetition"]]:
+        n_rep = 0
+        for pair in self.c["pairs"]:
+            if n_rep >= MAX_PER_TYPE["unnecessary_repetition"]:
+                break
             e, l = self.chunk(pair["earlier"]), self.chunk(pair["later"])
-            in_recap = any(_ov(l["start_ms"], l["end_ms"], r["start_ms"], r["end_ms"]) for r in recap_spans)
-            self.add("unnecessary_repetition", l["start_ms"], l["end_ms"], self.ev_chunk(pair["later"])[:4] + self.ev_chunk(pair["earlier"])[:3], [
-                {"id": "O1", "operation": "cut", "interval": {"start_ms": l["start_ms"], "end_ms": l["end_ms"]},
-                 "desc": f"cut the later passage {mmss(l['start_ms'])}-{mmss(l['end_ms'])}"},
-                {"id": "O2", "operation": "rewrite", "interval": {"start_ms": l["start_ms"], "end_ms": l["end_ms"]},
-                 "desc": "replace the repeated passage with one new example or a one-line callback"}],
-                f"semantic similarity {pair['cosine']} with {mmss(e['start_ms'])}-{mmss(e['end_ms'])}"
-                + ("; the later passage sits in a recap/outro (may be intentional)" if in_recap else ""),
+            run = repeated_run(e, l, self.c["seg_by_id"])
+            if run is None:  # same topic, new wording: not a repetition (embedding similarity is retrieval only)
+                continue
+            n_rep += 1
+            segs = [self.c["seg_by_id"][x] for x in run]
+            iv = self.snap_to_sentences({"start_ms": segs[0]["interval"]["start_ms"], "end_ms": segs[-1]["interval"]["end_ms"]})
+            a, b = iv["start_ms"], iv["end_ms"]
+            in_recap = any(_ov(a, b, r["start_ms"], r["end_ms"]) for r in recap_spans)
+            ev = self.ev_span(max(0, a - 6000), a, 1) + [(self.book.transcript(s), f"[{mmss(s['interval']['start_ms'])}-"
+                                                         f"{mmss(s['interval']['end_ms'])}] \"{s['text']}\"") for s in segs[:5]]
+            self.add("unnecessary_repetition", a, b, ev + self.ev_chunk(pair["earlier"])[:3], [
+                {"id": "O1", "operation": "cut", "interval": iv,
+                 "desc": f"cut only the repeated sentences {mmss(a)}-{mmss(b)}; everything around them stays"},
+                {"id": "O2", "operation": "rewrite", "interval": iv,
+                 "desc": "replace only the repeated sentences with a one-line callback"}],
+                f"{len(run)} consecutive sentences repeat the wording of {mmss(e['start_ms'])}-{mmss(e['end_ms'])}; "
+                "the first evidence line is the sentence just before (it may announce an intentional replay)"
+                + ("; inside a recap/outro (may be intentional)" if in_recap else ""),
                 comparison={"start_ms": e["start_ms"], "end_ms": e["end_ms"]})
         for p in sorted(self.c["pauses"], key=lambda x: -(x["end_ms"] - x["start_ms"]))[:MAX_PER_TYPE["dead_air"]]:
             a, b = p["start_ms"], p["end_ms"]
@@ -197,8 +263,10 @@ class CandidateBuilder:
             ev = [(self.book.signal(f"black:{a}:{b}", bl, "black frames", "video_scan"),
                    f"[measured] black picture {mmss(a)}-{mmss(b)} ({(b - a) / 1000:.1f} s)")] + self.ev_span(a, b, 2)
             self.add("technical_visual_fault", a, b, ev, [
-                {"id": "O1", "operation": "cut", "interval": bl, "desc": "cut the black frames"},
-                {"id": "O2", "operation": "insert_visual", "interval": bl, "desc": "cover with the relevant visual"}],
+                {"id": "O1", "operation": "insert_visual", "interval": bl,
+                 "desc": "replace the black frames with the neighbouring shot; audio untouched"}]
+                + ([] if self.segs_in(a, b) else [{"id": "O2", "operation": "cut", "interval": bl,
+                                                    "desc": "cut the black frames (no speech over them)"}]),
                 "black frames mid-video (could be an intentional transition)")
         for o in [o for o in self.c.get("observations", []) if o["_kind"] == "technical_visual"][:2]:
             iv = o["interval"]
@@ -218,6 +286,34 @@ class CandidateBuilder:
                 {"id": "O2", "operation": "cut", "interval": {"start_ms": a, "end_ms": b}, "desc": "tighten the shot"}],
                 "a still picture can be useful when it carries the explanation")
         return self.items
+
+
+_STOP = set("the a an and or but to of in on for is it that this with as at be are was so you i he his we they my your "
+             "our its by from".split())
+REPEAT = {"trigram_overlap": 0.5, "min_run": 2}
+
+
+def _content_trigrams(text: str) -> set[tuple[str, ...]]:
+    import re
+
+    w = [x for x in re.findall(r"[^\W_]+(?:'[^\W_]+)?", text.lower()) if x not in _STOP]
+    return {tuple(w[i:i + 3]) for i in range(len(w) - 2)}
+
+
+def repeated_run(earlier: dict, later: dict, seg_by_id: dict, cfg: dict = REPEAT) -> list[str] | None:
+    """Longest run of consecutive later segments whose content-word trigrams mostly occur in the earlier
+    paragraph. Measured on this project's test video: same-topic paragraphs score 0 and true repeats 0.6-1.0,
+    while sentence embeddings scored both ~0.85 (no usable threshold)."""
+    E = set().union(*(_content_trigrams(seg_by_id[x]["text"]) for x in earlier["segment_ids"])) if earlier["segment_ids"] else set()
+    best, cur = [], []
+    for sid in later["segment_ids"]:
+        T = _content_trigrams(seg_by_id[sid]["text"])
+        if T and len(T & E) / len(T) >= cfg["trigram_overlap"]:
+            cur.append(sid)
+            best = max(best, cur, key=len)
+        else:
+            cur = []
+    return list(best) if len(best) >= cfg["min_run"] else None
 
 
 QUIET = {"floor_dbfs": -45.0, "below_speech_db": 20.0, "min_quiet_frac": 0.6}

@@ -35,10 +35,12 @@ Rebuild the Colab notebook with `scripts/build_notebook.py`. Environments: `scri
 - The job zip embeds `epoch_vlm/`. After editing it, rebuild the job (`analyze` re-runs `visual_job`) and tell the user to replace the zip on Drive.
 - PaddleOCR on Windows needs `enable_mkldnn=False` (oneDNN PIR bug).
 - faster-whisper can emit repetition loops. The align stage's `loop_guard` drops impossible-rate segments (ARCHITECTURE A-01). Never de-dup by text similarity.
+- Every edit suggestion must be checked against its original text (ARCHITECTURE E-01). Never propose an edit that drops new points, examples, questions or transitions.
+- Restart the API after any `contracts/` change (the running process keeps the old schema).
 - Screenshots of the browser pane are unreliable while a `<video>` is playing. Verify the UI through the DOM/JS instead.
 
 ## Current state (2026-10-03)
 - Test video: "How MrBeast Solved YouTube" (850 s), workspace `5234018afef0e99a` in `C:\Epoch\epoch-data\work`.
 - Media, ASR (217 segments, 41 min CPU) and alignment (207 segments after the loop guard, 2790/2790 words aligned) are done locally. Colab job: `5234018afef0e99a_8f1941e177e44a81.visualjob.zip`. The user runs it on Colab; the result comes back via `attach-visual`, then `finish`.
-- Narrative/score/export done (partial: visual + OCR missing). Imported run `55f020cd` in the API at :8765 (`.claude/launch.json` at C:\Epoch). After the Colab result: `attach-visual`, then `finish`, then import the new package.
+- Narrative/score/export done (partial: visual + OCR missing). Imported run `270676b4` in the API at :8765 (`.claude/launch.json` at C:\Epoch). After the Colab result: `attach-visual`, then `finish`, then import the new package.
 - Not built yet: script-only mode, RapidOCR. Open question: the one-off frames hash mismatch after the crash.

@@ -96,3 +96,42 @@ def test_structure_with_bad_span_is_salvaged_not_failed(monkeypatch):
                                            {"chunk": "P01", "kind": "recap", "quote": "invented text", "note": ""}]}
     errs = validate_structure(obj, ["P01"], {"P01": "please subscribe now"}, "About X")
     assert errs == ["spans[1].quote is not an exact substring of paragraph P01"]
+
+
+def test_repetition_needs_repeated_wording_and_edits_only_those_sentences():
+    from pipeline.reasoning.candidates import repeated_run
+    seg = {
+        "e1": {"text": "MrBeast has solved YouTube retention, hitting the golden benchmark of 70% retention"},
+        "e2": {"text": "But how does MrBeast reach this magic number? To find out I spent a week studying"},
+        # later paragraph: a framing line, two replayed sentences, then a NEW transition that must survive
+        "l1": {"text": "See if you can spot them in the hook to this video."},
+        "l2": {"text": "MrBeast has solved YouTube retention, hitting the golden benchmark of 70% retention"},
+        "l3": {"text": "But how does MrBeast reach this magic number? To find out I spent a week studying"},
+        "l4": {"text": "As it turns out, it's not one secret, it's three, and it starts with visual variety."},
+        # same topic, new wording (the 6:44 case): must not be a repetition at all
+        "t1": {"text": "MrBeast starts the body of his video no later than 20 seconds in"},
+        "t2": {"text": "the sooner the retention curve levels off the better for him"},
+    }
+    earlier = {"segment_ids": ["e1", "e2"]}
+    assert repeated_run(earlier, {"segment_ids": ["l1", "l2", "l3", "l4"]}, seg) == ["l2", "l3"]
+    assert repeated_run(earlier, {"segment_ids": ["t1", "t2"]}, seg) is None
+
+
+def test_gutting_rewrite_is_rejected():
+    from pipeline.reasoning.narrative import REWRITE_MIN_RETENTION, content_retention
+    original = ("For MrBeast, jumping into the action usually means starting the first challenge or experience. For a "
+                "video like mine, it could mean jumping into the first point. Regardless, MrBeast starts the body of his "
+                "video no later than 20 seconds in, because he knows that the sooner the retention curve starts to level "
+                "off, the better. The question then becomes, how do you keep the retention curve level? As it turns out, "
+                "it's not one secret, it's three, and it starts with visual variety.")
+    bad = "Crucially, launch the main content within the first 20 seconds to keep viewers hooked and the retention curve flat."
+    assert content_retention(original, bad) < REWRITE_MIN_RETENTION
+
+
+def test_edit_boundaries_snap_to_sentences():
+    words = [{"text": t, "start_ms": i * 100, "end_ms": i * 100 + 90} for i, t in enumerate(
+        "See the hook. MrBeast has solved retention, hitting seventy. But how? Next point".split())]
+    b = CandidateBuilder({"book": None, "words": words})
+    # raw segment boundary: starts at "hitting" (mid-sentence), ends at "But" (mid-sentence)
+    iv = b.snap_to_sentences({"start_ms": 700, "end_ms": 950})
+    assert iv == {"start_ms": 300, "end_ms": 1090}  # "MrBeast ... seventy. But how?"
