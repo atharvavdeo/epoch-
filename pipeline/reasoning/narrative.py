@@ -19,6 +19,7 @@ from contracts.entities import P1_ISSUE_TYPES, ISSUE_TRACK
 from pipeline.orchestration.io import read_json, write_json
 from pipeline.orchestration.settings import REPO_ROOT
 from pipeline.orchestration.stage import StageContext, StageError, StageResult, StageSpec
+from pipeline.reasoning.transcript_signals import word_speech_rates
 from pipeline.reasoning.candidates import (
     CandidateBuilder,
     EvidenceBook,
@@ -28,12 +29,13 @@ from pipeline.reasoning.candidates import (
     speech_rates,
 )
 
-PROMPT = REPO_ROOT / "prompts" / "narrative.v3.md"
+PROMPT = REPO_ROOT / "prompts" / "narrative.v4.md"
 MAX_CALLS, PER_CALL = 12, 4
 INPUT_CHAR_BUDGET = 22_000  # ~8k tokens incl. instructions (TRD §5)
 ROLES = ["cold_open", "greeting_intro", "hook", "setup", "main_content", "example_demo", "tangent", "sponsor", "cta",
          "recap", "outro"]
-SPAN_KINDS = ["greeting", "cta", "sponsor", "recap", "outro", "viewer_question", "open_loop", "tangent_candidate"]
+SPAN_KINDS = ["greeting", "cta", "sponsor", "recap", "outro", "viewer_question", "open_loop", "tangent_candidate",
+              "cold_open"]
 
 
 def _sections() -> dict[str, str]:
@@ -294,7 +296,7 @@ def salvage_decisions(obj: dict | None, batch: list[tuple[str, dict]]) -> dict:
 # --------------------------------------------------------------------- stage
 
 def narrative_spec(source: dict) -> StageSpec:
-    return StageSpec(name="narrative", version="9", deps=("align", "embed", "probe", "video_scan", "audio"),
+    return StageSpec(name="narrative", version="10", deps=("align", "embed", "probe", "video_scan", "audio"),
                      optional_deps=("asr", "visual"),
                      config={"max_calls": MAX_CALLS, "per_call": PER_CALL, "char_budget": INPUT_CHAR_BUDGET,
                              "thresholds": {"intro_ms": 20000, "payoff_ms": 60000, "pause_ms": 2000, "static_shot_ms": 15000,
@@ -343,7 +345,11 @@ def narrative_stage(source: dict, llm_factory=None):
                     f"visual analysis {'available' if visual else 'not available'}")
         user = (secs["STRUCTURE"].replace("{title}", title).replace("{category}", cat).replace("{language}", lang)
                 .replace("{duration}", mmss(T)).replace("{measured}", measured).replace("{paragraphs}", para_text))
-        validate_s = lambda o: validate_structure(o, [c["chunk_id"] for c in chunks], shown, title)  # noqa: E731
+        quote_repairs: list[dict] = []
+
+        def validate_s(o):
+            quote_repairs.extend(repair_quotes(o, [c["chunk_id"] for c in chunks], shown))
+            return validate_structure(o, [c["chunk_id"] for c in chunks], shown, title)
         structure, s_errs, s_rep, s_last = call_with_repair(llm, secs, user, "structure", STRUCTURE_SCHEMA, validate_s,
                                                             budget, 6000)
         dropped_spans = []
@@ -368,8 +374,8 @@ def narrative_stage(source: dict, llm_factory=None):
         for e in (visual or {}).get("evidence", []):
             if e["kind"] == "observation":
                 obs_ev[e["ref_id"]] = e["evidence_id"]
-        rates = speech_rates(chunks, {}, seg_by_id)
-        rushed = sorted([r for r in rates if r["wpm"] > max(190, 1.25 * r["median"])], key=lambda r: -r["wpm"])
+        rates = word_speech_rates(chunks, tr.get("words", []), seg_by_id)
+        rushed = sorted([r for r in rates if r["wpm"] > max(190, 1.25 * r["median"])], key=lambda r: -r["wpm"])  # relative to this speaker
         long_static = [s for s in shots if s["end_ms"] - s["start_ms"] >= 15_000 and (s["metrics"].get("motion_mean") or 0) < 0.02]
         builder = CandidateBuilder({
             "book": book, "segments": segments, "chunk_by_id": chunk_by_id, "seg_by_id": seg_by_id, "duration_ms": T,
@@ -416,10 +422,10 @@ def narrative_stage(source: dict, llm_factory=None):
 
         issues, suggestions, dismissed = build_issues(cands, decisions, book, obs_by_ev, source, segments)
         promises = build_promises(st, chunk_by_id, seg_by_id, book)
-        signals = narrative_signals(st, pairs, chunk_by_id, rates, book)
+        signals = narrative_signals(st, pairs, chunk_by_id, rates, book) + transcript_signals(chunks, chunk_by_id, seg_by_id, segments)
         evidence = [{k: v for k, v in e.items() if not k.startswith("_")} for e in book.records.values()]
         write_json(ctx.out / "narrative.json", {
-            "structure_raw": structure, "structure_dropped_spans": dropped_spans, "structure": st, "issues": issues, "suggestions": suggestions,
+            "structure_raw": structure, "structure_dropped_spans": dropped_spans, "quote_repairs": quote_repairs, "structure": st, "issues": issues, "suggestions": suggestions,
             "promises": promises, "signals": signals, "evidence": evidence, "dismissed": dismissed,
             "unadjudicated": unadjudicated, "candidates": [{k: v for k, v in c.items() if not k.startswith("_")} for c in cands],
             "llm": {**llm.usage(), "probe": probe_info, "prompt_sha256": prompt_sha(), "repairs_used": 8 - budget["repairs"],
@@ -585,6 +591,55 @@ def build_promises(st, chunk_by_id, seg_by_id, book):
     return out
 
 
+def repair_quotes(obj: dict, chunk_ids: list[str], shown: dict[str, str]) -> list[dict]:
+    """Replace near-exact hook/span quotes with the transcript's exact words, searching the claimed paragraph and
+    then its neighbours (the model sometimes cites the adjacent paragraph). Paraphrases stay invalid."""
+    from pipeline.reasoning.transcript_signals import snap_quote
+
+    fixes = []
+    order = {c: i for i, c in enumerate(chunk_ids)}
+
+    def fix(item, where):
+        cid, q = item.get("chunk"), item.get("quote", "")
+        if not q.strip() or cid not in shown or norm(q) in norm(shown[cid]):
+            return
+        i = order[cid]
+        for cand in [cid] + [chunk_ids[j] for j in (i - 1, i + 1) if 0 <= j < len(chunk_ids)]:
+            exact = snap_quote(q, shown[cand])
+            if exact:
+                fixes.append({"where": where, "from": {"chunk": cid, "quote": q}, "to": {"chunk": cand, "quote": exact}})
+                item["chunk"], item["quote"] = cand, exact
+                return
+
+    if obj.get("hook", {}).get("kind") != "none":
+        fix(obj["hook"], "hook")
+    for i, sp in enumerate(obj.get("spans", [])):
+        fix(sp, f"spans[{i}]")
+    return fixes
+
+
+def transcript_signals(chunks, chunk_by_id, seg_by_id, segments):
+    """F52 filler density per paragraph and F47 language switches (measured, no LLM)."""
+    from pipeline.reasoning.transcript_signals import filler_counts, language_switches
+
+    out = []
+    for f in filler_counts(chunks, seg_by_id):
+        ch = chunk_by_id[f["chunk_id"]]
+        iv = {"start_ms": ch["start_ms"], "end_ms": ch["end_ms"]}
+        out.append({"signal_id": det_uuid("signal", "F52", f["chunk_id"], iv["start_ms"]), "feature_id": "F52",
+                    "interval": iv, "modality": "speech", "name": "filler_rate",
+                    "value": {"count": f["count"], "per_min": f["per_min"], "terms": f["terms"]}, "unit": "fillers/min",
+                    "method": "lexicon (en: um/uh/you know/i mean/...; Hindi discourse words excluded)",
+                    "evidence_ids": [], "validity": "measured", "unknown_reason": None})
+    for sw in language_switches(segments):
+        iv = {"start_ms": sw["at_ms"], "end_ms": sw["at_ms"] + 1}
+        out.append({"signal_id": det_uuid("signal", "F47", sw["at_ms"]), "feature_id": "F47", "interval": iv,
+                    "modality": "speech", "name": "language_switch", "value": {"from": sw["from"], "to": sw["to"]},
+                    "unit": "label", "method": "per-segment script share (asr language hint)", "evidence_ids": [],
+                    "validity": "estimated", "unknown_reason": None})
+    return out
+
+
 def narrative_signals(st, pairs, chunk_by_id, rates, book):
     sig = []
 
@@ -596,7 +651,7 @@ def narrative_signals(st, pairs, chunk_by_id, rates, book):
     for c in st["chapters"]:
         add("F61", "chapter", {"start_ms": c["start_ms"], "end_ms": c["end_ms"]}, {"label": c["label"], "role": c["role"]})
     kind_feature = {"greeting": "F59", "cta": "F55", "sponsor": "F62", "recap": "F63", "outro": "F64",
-                    "viewer_question": "F53", "open_loop": "F54", "tangent_candidate": "F51"}
+                    "viewer_question": "F53", "open_loop": "F54", "tangent_candidate": "F51", "cold_open": "F58"}
     for sp in st["spans"]:
         add(kind_feature[sp["kind"]], sp["kind"], sp["interval"], {"quote": sp["quote"][:300], "note": sp["note"][:300]})
     if st["hook_ms"] is not None:
@@ -613,5 +668,6 @@ def narrative_signals(st, pairs, chunk_by_id, rates, book):
     for r in rates:
         ch = chunk_by_id[r["chunk_id"]]
         add("F40", "speech_rate", {"start_ms": ch["start_ms"], "end_ms": ch["end_ms"]}, r["wpm"], unit="words/min",
-            validity="measured" if r["precision"] == "word" else "estimated", method="asr words / segment speech time")
+            validity="measured" if r["precision"] == "word" else "estimated",
+            method="aligned words / speaking time (gaps < 0.5 s)" if r["precision"] == "word" else "asr words / segment time")
     return sig

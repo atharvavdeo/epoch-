@@ -135,3 +135,38 @@ def test_edit_boundaries_snap_to_sentences():
     # raw segment boundary: starts at "hitting" (mid-sentence), ends at "But" (mid-sentence)
     iv = b.snap_to_sentences({"start_ms": 700, "end_ms": 950})
     assert iv == {"start_ms": 300, "end_ms": 1090}  # "MrBeast ... seventy. But how?"
+
+
+def test_word_based_speech_rate_excludes_pauses():
+    from pipeline.reasoning.transcript_signals import word_speech_rates
+    # 20 words of 200 ms with 100 ms gaps, then a 5 s pause, then 20 more: speaking time 2*(20*200+19*100) = 11.8 s
+    words, t = [], 0
+    for k in range(40):
+        words.append({"segment_id": "s1", "text": "w", "start_ms": t, "end_ms": t + 200})
+        t += 300 if k != 19 else 5200
+    seg = {"s1": {"text": "w " * 40, "interval": {"start_ms": 0, "end_ms": t}}}
+    r = word_speech_rates([{"chunk_id": "P01", "segment_ids": ["s1"]}], words, seg)[0]
+    assert r["precision"] == "word" and r["wpm"] == round(40 / (11_800 / 60_000))
+
+
+def test_fillers_skip_meaningful_words_and_hindi_discourse():
+    from pipeline.reasoning.transcript_signals import filler_counts
+    seg = {"a": {"text": "Um, you know, I like this. So basically it works.", "interval": {"start_ms": 0, "end_ms": 60_000}},
+           "b": {"text": "toh matlab yeh hai", "interval": {"start_ms": 0, "end_ms": 60_000}}}
+    en = filler_counts([{"chunk_id": "P1", "segment_ids": ["a"]}], seg)[0]
+    assert en["terms"] == {"um": 1, "you know": 1, "basically": 1}
+    hi = filler_counts([{"chunk_id": "P2", "segment_ids": ["b"], "language": "hi"}], seg)[0]
+    assert hi["count"] == 0
+
+
+def test_quote_repair_moves_to_neighbouring_paragraph():
+    from pipeline.reasoning.narrative import repair_quotes
+    shown = {"P1": "there's actually one more secret element that MrBeast applies to every one of his hooks.",
+             "P2": "visual variety keeps the curve flat"}
+    obj = {"hook": {"kind": "none", "chunk": "P1", "quote": ""},
+           "spans": [{"chunk": "P2", "kind": "open_loop", "quote": "theres actually one more secret element that MrBeast "
+                      "applies to every one of his hooks", "note": ""},
+                     {"chunk": "P2", "kind": "recap", "quote": "a sentence nobody said", "note": ""}]}
+    fixes = repair_quotes(obj, ["P1", "P2"], shown)
+    assert obj["spans"][0]["chunk"] == "P1" and obj["spans"][0]["quote"] in shown["P1"]
+    assert obj["spans"][1]["quote"] == "a sentence nobody said" and len(fixes) == 1  # paraphrase not "repaired"
