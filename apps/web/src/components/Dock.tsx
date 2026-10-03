@@ -16,7 +16,8 @@ export function Dock({ active, runId }: { active: Area; runId?: string }) {
       {item(last ? `/runs/${last}/plan` : null, "plan", "Edit plan")}
       {item("/evaluation", "evaluation", "Evaluation")}
       {item("/settings", "settings", "Settings")}
-      <Link to="/new" className={`hero ${active === "new" ? "on" : ""}`}>+ New analysis</Link>
+      {/* one coral action per screen: the dock CTA is coral only where starting an analysis is the next step */}
+      <Link to="/new" className={`${active === "projects" || active === "evaluation" || active === "settings" ? "hero" : "quiet-cta"} ${active === "new" ? "on" : ""}`}>+ New analysis</Link>
     </nav>
   );
 }

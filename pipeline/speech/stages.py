@@ -12,7 +12,10 @@ ASR_CONFIG = {
     "beam_size": 5,
     "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     "seed": 1234,
-    "condition_on_previous_text": True,
+    # False (was True): conditioning on its own output let large-v3 drift into unpunctuated lower-case for whole
+    # 5-minute chunks (7:43-14:10 of the test video). The same audio decoded without the drifted context came back
+    # punctuated (scripts/asr_punct_experiment.py; ARCHITECTURE A-03). An initial prompt made it worse.
+    "condition_on_previous_text": False,
     "compression_ratio_threshold": 2.4,
     "log_prob_threshold": -1.0,
     "no_speech_threshold": 0.6,

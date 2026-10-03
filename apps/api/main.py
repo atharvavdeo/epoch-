@@ -692,6 +692,15 @@ def _is_quoted_voice(segs: list[dict], start_ms: int) -> bool:
     return bool(seg and _re.match(r"(?i)^(bro|dude|guys|oh my (god|gosh))\b", seg["text"].strip()))
 
 
+@app.get("/api/v1/runs/{run_id}/search")
+def search_transcript(run_id: str, q: str = Query(min_length=1, max_length=200), k: int = Query(8, ge=1, le=20)):
+    """Transcript retrieval (BM25 over ~3-segment passages); the same index the assistant uses."""
+    from pipeline.reasoning.rag import TranscriptIndex
+
+    r = _run_row(run_id)
+    return {"query": q, "items": TranscriptIndex(read_jsonl(Path(r.dir), "transcript")).search(q, k=k)}
+
+
 class ChatTurn(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
     content: str = Field(max_length=4000)
@@ -707,6 +716,7 @@ CHAT_SYSTEM = """You are the review assistant for one video analysis. Answer ONL
 Rules:
 - Every claim about the video cites a time range from the context, written like [m:ss-m:ss], and also listed in citations.
 - If the context does not contain the answer, say "Not measured in this analysis" and name what would be needed.
+  Only excerpts of the transcript are given; if the answer may be elsewhere, say which chapter to look in.
 - The retention numbers come from a rule-based text model with no audience data (uncalibrated). Never present them
   as real audience data or as certain.
 - Visual analysis and on-screen text were NOT inspected unless the context says so. Do not describe visuals.
@@ -728,7 +738,7 @@ CHAT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["an
                                                  "why": {"type": "string"}}}}}}
 
 
-def _chat_context(r, selection: dict | None) -> str:
+def _chat_context(r, selection: dict | None, query: str = "") -> tuple[str, list[dict]]:
     from pipeline.reasoning.relations import analyse
 
     d = Path(r.dir)
@@ -775,9 +785,21 @@ def _chat_context(r, selection: dict | None) -> str:
         parts.append(f"ABSTRACT STRETCH [{_mmss(x['start_ms'])}-{_mmss(x['end_ms'])}] no concrete example for {x['sentences']} sentences")
     if selection and "start_ms" in selection and "end_ms" in selection:
         parts.append(f"THE REVIEWER IS LOOKING AT [{_mmss(int(selection['start_ms']))}-{_mmss(int(selection['end_ms']))}]")
-    parts.append("TRANSCRIPT (quoted data):")
-    parts += [f"[{_mmss(x['interval']['start_ms'])}] {x['text']}" for x in sorted(segs, key=lambda x: x["interval"]["start_ms"])]
-    return "\n".join(parts)
+    # RAG: a compact overview of the whole video (chapters) plus the passages retrieved for this question,
+    # instead of the full transcript. The opening 30 s is always included (hook questions are common).
+    from pipeline.reasoning.rag import TranscriptIndex
+
+    chapters = [x for x in sig if x["feature_id"] == "F61"]
+    parts.append("CHAPTERS: " + "; ".join(f"[{_mmss(c['interval']['start_ms'])}] {(c.get('value') or {}).get('label', '')}"
+                                          for c in chapters))
+    near = int(selection["start_ms"]) if selection and "start_ms" in selection else None
+    hits = TranscriptIndex(segs).search(query or "", k=8, near_ms=near)
+    ordered = sorted(segs, key=lambda x: x["interval"]["start_ms"])
+    opening = " ".join(x["text"] for x in ordered if x["interval"]["start_ms"] < 30_000)
+    parts.append("TRANSCRIPT EXCERPTS (quoted data, retrieved for this question; other parts of the video exist):")
+    parts.append(f"[0:00-0:30] {opening}")
+    parts += [f"[{_mmss(h['start_ms'])}-{_mmss(h['end_ms'])}] {h['text']}" for h in hits]
+    return "\n".join(parts), hits
 
 
 @app.post("/api/v1/runs/{run_id}/chat")
@@ -787,7 +809,7 @@ def chat(run_id: str, body: ChatIn):
 
     r = _run_row(run_id)
     T = _run_duration(r)
-    ctx = _chat_context(r, body.selection)
+    ctx, retrieved = _chat_context(r, body.selection, body.message)
     hist = "\n".join(f"{t.role.upper()}: {t.content}" for t in body.history[-8:])
     user = f"CONTEXT\n{ctx}\n\n" + (f"CONVERSATION SO FAR\n{hist}\n\n" if hist else "") + f"QUESTION\n{body.message}"
     try:
@@ -832,8 +854,9 @@ def chat(run_id: str, body: ChatIn):
             warnings.append(f"\"{q['text'][:80]}\" introduces what comes next (a transition). Removing it breaks the flow.")
         elif q["start_ms"] is not None and _is_quoted_voice(segs, q["start_ms"]):
             warnings.append(f"\"{q['text'][:80]}\" looks like a quoted clip or another speaker (evidence). Keep it.")
-    return {"answer": out.get("answer", ""), "quotes": quotes, "edit_warnings": warnings, "citations": cites, "dropped_citations": dropped,
-            "model": cl.model, "grounding": "transcript, findings, text-model prediction, transcript relations"}
+    return {"answer": out.get("answer", ""), "quotes": quotes, "edit_warnings": warnings,
+            "sources": [{k: h[k] for k in ("start_ms", "end_ms", "score", "matched")} for h in retrieved], "citations": cites, "dropped_citations": dropped,
+            "model": cl.model, "grounding": "retrieved transcript passages (BM25), chapters, findings, text-model prediction, relations"}
 
 
 # ------------------------------------------------------------------- media

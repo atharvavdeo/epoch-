@@ -29,7 +29,7 @@ export function ChatPanel({ runId, onClose }: { runId: string; onClose: () => vo
         <span><span className="faint" style={{ fontSize: 11, letterSpacing: ".08em" }}>ASSISTANT · GROUNDED IN THIS ANALYSIS</span><br /><b>Ask about this video</b></span>
         <button className="ghost" aria-label="Close assistant" title="Close" onClick={onClose}>×</button>
       </div>
-      <p className="faint chat-note">Answers come only from this analysis: transcript, findings and the uncalibrated text model.
+      <p className="faint chat-note">Answers come only from this analysis: transcript passages retrieved for your question, findings and the uncalibrated text model.
         Quotes are checked against the transcript; edit warnings come from fixed rules. Sends transcript text to Cerebras.
         {selection && <> Looking at <b className="mono">{s2(selection.start_ms)}–{s2(selection.end_ms)}</b>.</>}</p>
       <div className="chat-log">
@@ -52,6 +52,13 @@ export function ChatPanel({ runId, onClose }: { runId: string; onClose: () => vo
                     {q.verified && q.start_ms !== null ? <span className="st time">{s2(q.start_ms)}</span> : null}
                     <span className={`st ${q.verified ? "ok" : "bad"}`}>{q.verified ? "✓ In transcript" : "✕ Not found"}</span>
                   </button>))}</div>}
+              {!!t.a.sources?.length && <details className="chat-rows" style={{ padding: 0 }}>
+                <summary className="rh" style={{ cursor: "pointer" }}><span>Transcript passages retrieved</span><span className="faint">{t.a.sources.length}</span></summary>
+                {t.a.sources.map((src, k) => (
+                  <button key={k} className="chat-row" onClick={() => focus({ start_ms: src.start_ms, end_ms: src.end_ms }, null)}>
+                    <span className="st time">{s2(src.start_ms)}–{s2(src.end_ms)}</span>
+                    <span className="txt faint">matched: {src.matched.join(", ") || "near the selected moment"}</span></button>))}
+              </details>}
               {!!t.a.citations.length && <div className="chat-rows">
                 <div className="rh"><span>Cited moments</span><span className="faint">{t.a.citations.length}</span></div>
                 {t.a.citations.map((c, k) => (

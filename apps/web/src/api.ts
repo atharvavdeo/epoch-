@@ -83,7 +83,7 @@ export type Relations = { method: string; sentences: number; unpunctuated_ms: nu
   summary: { questions: number; answered_immediately: number; open_loops: number; no_callback: number; concrete_share: number } };
 export type ChatMsg = { role: "user" | "assistant"; content: string };
 export type ChatAnswer = { answer: string; quotes: { text: string; verified: boolean; start_ms: number | null }[];
-  edit_warnings: string[]; citations: { start_ms: number; end_ms: number; why: string }[]; dropped_citations: number;
+  edit_warnings: string[]; sources: { start_ms: number; end_ms: number; score: number; matched: string[] }[]; citations: { start_ms: number; end_ms: number; why: string }[]; dropped_citations: number;
   model: string; grounding: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
