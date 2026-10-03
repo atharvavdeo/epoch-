@@ -1,4 +1,75 @@
-# Epoch 1.0 — evidence-grounded retention review
+# Epoch 1.0 — every second has a story
+
+> 🥈 **Second place at Epoch 1.0, the KJSIT hackathon — built in 12 hours.**
+
+## The problem: a drop in attention rarely explains itself
+
+A creator can see that a video loses viewers and still struggle to decide what to change. The explanation may sit in the script, the delivery, a long shot, dense on-screen text, a quiet gap, or a promise that takes too long to pay off. Before publishing, the creator has the content but no audience response for that version. After publishing, a retention curve can locate a drop without establishing its cause.
+
+The data problem is also a connection problem. A transcript alone cannot show a loudness dip; an audio meter cannot explain an unresolved title promise; a shot detector cannot decide whether a long explanation needs that uninterrupted shot. When those records use different timelines, omit their evidence, or hide missing analysis, the creator has numbers without a dependable route back to the moment. A polished percentage does not repair those gaps.
+
+Epoch addresses this by joining available evidence on one timeline, explaining why a moment deserves review, and making assumptions and missing coverage visible.
+
+## What we built in 12 hours
+
+**A working evidence-grounded review workspace for video, audio and scripts.** The 12-hour build brings source ingestion, local media measurement, transcription and alignment, structured narrative analysis, transparent retention scenarios, timestamp-linked findings, grounded questions, edit planning and export/import into one workflow.
+
+- **Connected the evidence:** playback, transcript, shots, available on-screen text, voice and audio measurements share a playhead and selected interval.
+- **Made findings inspectable:** each concern can carry a timestamp, quote or measured signal, explanation, suggested action and alternative interpretation.
+- **Made estimates explainable:** the retention engine exposes its baseline, feature weights, cause groups, sensitivity range and watch-time calculations.
+- **Handled incomplete inputs:** audio and scripts use the evidence they actually contain; missing visual or delivery analysis stays disclosed.
+- **Kept the creator in control:** keep, rewrite, shorten and needs-review recommendations feed a non-destructive plan with validation checks.
+- **Made results portable:** immutable packages, manifests, hashes, stage records and downloadable outputs support later inspection and re-import.
+- **Built a public walkthrough:** the hosted workspace presents completed sample runs, charts and guided tours; fresh analysis runs through the local backend.
+
+This solves the workflow gap between a suspicious moment and the evidence needed to review it. Audience prediction accuracy and retention uplift remain unvalidated; optional visual AI remains on hold. The screenshots below show one example run, not benchmark results.
+
+Epoch helps creators inspect **where a video or script may lose attention, what evidence supports that concern, and what should be reviewed before editing**. It accepts video, audio or a script, constructs a timed evidence record, derives narrative and delivery signals, produces an assumption-based retention scenario, and presents timestamp-linked findings with counter-explanations.
+
+The central prediction is **uncalibrated**. It is a transparent scenario built from engineering priors and available evidence, not YouTube audience analytics. No authentic audience-retention dataset has been used to fit its weights. A completed job can import a **partial analysis** package when optional modalities are missing; the UI preserves that distinction.
+
+Current implementation: the integrated Kawal UI, durable browser upload worker, all three input pipelines, text-retention-v3, grounded chat, Jev second opinions, edit planning, export/import and a dedicated Retention section. See [the verification record](docs/FINAL_INTEGRATION_2026-10-03.md), [latest final checks](docs/FINAL_CHECKS_2026-10-03.md), [judge demonstration guide](docs/DEMO_GUIDE.md), and [detailed architecture and decision history](ARCHITECTURE.md).
+
+## See the workflow
+
+**From a first impression to a defensible next edit.** Ten views of Epoch, paired by the job they help a creator do. Open an image to inspect it at full size.
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/readme/01-landing.png"><img src="docs/images/readme/01-landing.png" alt="Epoch: The entry point to evidence-grounded retention review." width="100%"></a><br><strong>Every second has a story.</strong><br>The entry point to evidence-grounded retention review.</td>
+<td width="50%" valign="top"><a href="docs/images/readme/02-principles.png"><img src="docs/images/readme/02-principles.png" alt="Epoch: Visible assumptions, traceable evidence and creator control." width="100%"></a><br><strong>A useful diagnosis. An honest estimate.</strong><br>Visible assumptions, traceable evidence and creator control.</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/readme/03-review.png"><img src="docs/images/readme/03-review.png" alt="Epoch: Playback beside transcript context and linked findings." width="100%"></a><br><strong>Watch the moment. Read the reason.</strong><br>Playback beside transcript context and linked findings.</td>
+<td width="50%" valign="top"><a href="docs/images/readme/04-timeline.png"><img src="docs/images/readme/04-timeline.png" alt="Epoch: Sections, estimates, risk, findings, shots, speech and text aligned in time." width="100%"></a><br><strong>One timeline. Every available signal.</strong><br>Sections, estimates, risk, findings, shots, speech and text aligned in time.</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/readme/05-retention.png"><img src="docs/images/readme/05-retention.png" alt="Epoch: Scenario retention, a sensitivity band and numbered review windows." width="100%"></a><br><strong>See the slope. Inspect the assumption.</strong><br>Scenario retention, a sensitivity band and numbered review windows.</td>
+<td width="50%" valign="top"><a href="docs/images/readme/06-pressure.png"><img src="docs/images/readme/06-pressure.png" alt="Epoch: Modelled departure pressure relative to the assumed baseline." width="100%"></a><br><strong>Find pressure before choosing a cut.</strong><br>Modelled departure pressure relative to the assumed baseline.</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/readme/07-text.png"><img src="docs/images/readme/07-text.png" alt="Epoch: Transcript risk with evidence, suggested action and what to preserve." width="100%"></a><br><strong>A finding should show its work.</strong><br>Transcript risk with evidence, suggested action and what to preserve.</td>
+<td width="50%" valign="top"><a href="docs/images/readme/08-voice.png"><img src="docs/images/readme/08-voice.png" alt="Epoch: Speaking rate, pitch, pitch variation and voiced share." width="100%"></a><br><strong>Listen to how the story is delivered.</strong><br>Speaking rate, pitch, pitch variation and voiced share.</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="docs/images/readme/09-audio.png"><img src="docs/images/readme/09-audio.png" alt="Epoch: Measured audio level, loudness and silent gaps." width="100%"></a><br><strong>Hear the dips behind the numbers.</strong><br>Measured audio level, loudness and silent gaps.</td>
+<td width="50%" valign="top"><a href="docs/images/readme/10-shots.png"><img src="docs/images/readme/10-shots.png" alt="Epoch: Shot duration alongside a frame and the words spoken over it." width="100%"></a><br><strong>A long shot deserves context.</strong><br>Shot duration alongside a frame and the words spoken over it.</td>
+</tr>
+</table>
+
+## Tech stack
 
 | Layer | Technology / pinned profile | What it does |
 |---|---|---|
@@ -18,12 +89,6 @@
 | Numerical analysis | NumPy 2.2, SciPy 1.15, soundfile 0.13; pure Python prediction/scoring | Waveform pitch, measured delivery, deterministic features, hazard integration and ranking |
 | Reproducibility | uv, per-environment hashed locks, pinned model manifests, pytest 8 | Dependency isolation, offline model inference, fingerprints and regression checks |
 | Test media acquisition | yt-dlp, used as a transient local tool | Downloaded the two user-provided public clips for testing; not an app dependency or public URL ingestion feature |
-
-Epoch helps creators inspect **where a video or script may lose attention, what evidence supports that concern, and what should be reviewed before editing**. It accepts video, audio or a script, constructs a timed evidence record, derives narrative and delivery signals, produces an assumption-based retention scenario, and presents timestamp-linked findings with counter-explanations.
-
-The central prediction is **uncalibrated**. It is a transparent scenario built from engineering priors and available evidence, not YouTube audience analytics. No authentic audience-retention dataset has been used to fit its weights. A completed job can import a **partial analysis** package when optional modalities are missing; the UI preserves that distinction.
-
-Current implementation: the integrated Kawal UI, durable browser upload worker, all three input pipelines, text-retention-v3, grounded chat, Jev second opinions, edit planning, export/import and a dedicated Retention section. See [the verification record](docs/FINAL_INTEGRATION_2026-10-03.md), [latest final checks](docs/FINAL_CHECKS_2026-10-03.md), [judge demonstration guide](docs/DEMO_GUIDE.md), and [detailed architecture and decision history](ARCHITECTURE.md).
 
 ## System architecture
 
@@ -60,6 +125,18 @@ flowchart TB
     class LOCAL,MODEL,PACKAGE,STORE local;
     class CLOUD,VISION external;
 ```
+
+### Diagram breakdown: how the system connects
+
+- **React application:** collects inputs and displays the imported run; shared selection connects playback, charts, evidence and the edit plan.
+- **FastAPI:** validates requests, persists sources, tracks durable jobs and exposes bounded artifact/review routes on loopback.
+- **Serial worker:** dispatches the source-specific pipeline in isolated environments and records cancellation, failures and completed stages.
+- **Local evidence:** measures media and obtains transcript, alignment and embeddings; measurements retain their timestamps and provenance.
+- **Text inference:** Cerebras supplies structured narrative/chat context and Jev supplies a bounded second opinion. These exchanges use text context rather than raw media.
+- **Optional visual boundary:** explicit sampled-frame jobs travel to Colab; attached observations must pass validation before use. This path remains unqualified for real-model quality.
+- **Deterministic analysis:** available features feed rules, grouped hazard, risk and edit checks; model responses cannot bypass evidence validators.
+- **Package and storage:** manifests and hashes describe immutable results; staging and atomic import connect verified artifacts to SQLite metadata.
+- **Return path:** the API serves that run back to React so every review action can refer to its actual evidence.
 
 ### Boundaries and ownership
 
@@ -103,14 +180,14 @@ flowchart TB
     class OPTIONAL optional;
 ```
 
-1. **Accept and persist.** `/api/v1/analyses` streams a supported file with a 2 GiB bound. An empty, unsupported or oversized file is rejected. The title/category/language is stored in a project; accepted sources persist in the job directory before the worker starts.
-2. **Register and probe.** The source hash identifies content. A project-scoped workspace prevents identical media under different titles/projects from overwriting each other's reasoning. Probe records actual container duration, streams, rotation, frame timing and audio presence. The browser permits short/out-of-original-scope media; acceptance does not establish suitability for every genre.
-3. **Prepare playback and audio.** Proxy video preserves the origin/time mapping for browser seeking. Audio extraction and FFmpeg measurements record waveform RMS, silence, loudness/peak and clipping diagnostics. Original media is retained locally in the package/output workflow.
-4. **Scan actual frames.** Decode/source timestamps support cuts and shot boundaries, motion, luminance, blur proxy, black intervals, freeze intervals and gaps. A frame grid supports thumbnails, evidence and optional visual jobs. These measurements are not semantic understanding of a scene.
-5. **Transcribe and align.** Whisper large-v3 runs CPU FP32 at six threads; VAD bounds speech regions. English/Hindi aligners are chosen by segment hints. Mixed segments use the Hindi route; Latin words may remain unaligned. Only scored aligned words retain times; failures keep segment timing and reduce precision. ASR loop artifacts are recorded/dropped by the guard.
-6. **Create optional visual work.** Browser uploads prepare the visual job but do not run local Qwen or request new OCR. CLI OCR is opt-in. Existing valid cached OCR may be retained. A Colab result can be attached after independent validation; current Qwen quality qualification is on hold.
-7. **Finish shared analysis.** Embeddings → narrative → prediction → voice → Jev → diagnostic score → export. Prediction uses only available inputs and computes optional voice windows directly from the extracted waveform when available. The later `voice` stage packages the dedicated Voice/Audio display diagnostics. Missing pitch analysis disables the corresponding feature without failing prediction.
-8. **Validate and import.** Export validates its own manifest, tables and artifacts. The API validates again, checks project identity, stages files, and commits a SQLite transaction. The UI navigates to the immutable imported run. A completed job is different from full modality coverage.
+- **Accept and persist.** `/api/v1/analyses` streams a supported file with a 2 GiB bound. An empty, unsupported or oversized file is rejected. The title/category/language is stored in a project; accepted sources persist in the job directory before the worker starts.
+- **Register and probe.** The source hash identifies content. A project-scoped workspace prevents identical media under different titles/projects from overwriting each other's reasoning. Probe records actual container duration, streams, rotation, frame timing and audio presence. The browser permits short/out-of-original-scope media; acceptance does not establish suitability for every genre.
+- **Prepare playback and audio.** Proxy video preserves the origin/time mapping for browser seeking. Audio extraction and FFmpeg measurements record waveform RMS, silence, loudness/peak and clipping diagnostics. Original media is retained locally in the package/output workflow.
+- **Scan actual frames.** Decode/source timestamps support cuts and shot boundaries, motion, luminance, blur proxy, black intervals, freeze intervals and gaps. A frame grid supports thumbnails, evidence and optional visual jobs. These measurements are not semantic understanding of a scene.
+- **Transcribe and align.** Whisper large-v3 runs CPU FP32 at six threads; VAD bounds speech regions. English/Hindi aligners are chosen by segment hints. Mixed segments use the Hindi route; Latin words may remain unaligned. Only scored aligned words retain times; failures keep segment timing and reduce precision. ASR loop artifacts are recorded/dropped by the guard.
+- **Create optional visual work.** Browser uploads prepare the visual job but do not run local Qwen or request new OCR. CLI OCR is opt-in. Existing valid cached OCR may be retained. A Colab result can be attached after independent validation; current Qwen quality qualification is on hold.
+- **Finish shared analysis.** Embeddings → narrative → prediction → voice → Jev → diagnostic score → export. Prediction uses only available inputs and computes optional voice windows directly from the extracted waveform when available. The later `voice` stage packages the dedicated Voice/Audio display diagnostics. Missing pitch analysis disables the corresponding feature without failing prediction.
+- **Validate and import.** Export validates its own manifest, tables and artifacts. The API validates again, checks project identity, stages files, and commits a SQLite transaction. The UI navigates to the immutable imported run. A completed job is different from full modality coverage.
 
 ### 2. Audio: recording to transcript and delivery review
 
@@ -134,6 +211,16 @@ flowchart TB
     class MEASURE,SPEECH,TEXT,RETENTION,PACKAGE local;
     class JEV external;
 ```
+
+### Diagram breakdown: audio
+
+- **Input and wrapper:** accepted audio is wrapped with a blank picture to reuse registration and playback timing.
+- **Measurements:** probe, proxy and audio stages provide waveform, loudness, peak, clipping and quiet-gap evidence.
+- **Speech:** ASR and alignment supply transcript segments, speech regions and word timing where alignment succeeds.
+- **Text reasoning:** embeddings and validated narrative supply chapters, opening/promise structure and candidate context.
+- **Prediction and voice:** only available text and measured delivery features enter the scenario and dedicated diagnostics.
+- **Jev:** optional typed routing adds a guarded editorial opinion; invalid or uncertain output remains reviewable.
+- **Package and review:** validated import exposes Text, Retention, Voice and Audio while declaring missing visuals. The blank picture is never analysed as a static visual defect.
 
 The audio path deliberately reuses the media/time-origin machinery by wrapping the sound with a blank picture. It runs `probe`, `proxy`, `audio`, `asr`, `align` and shared finish stages. It does **not** run video scan, frame sampling or visual AI on the blank picture. No blank-video stagnation judgment is manufactured. The result carries text, speech and audio evidence, measured voice windows and a retention scenario; missing visual modalities make the general media package partial. A fresh 40-second English recording has already exercised this path through actual import.
 
@@ -160,9 +247,48 @@ flowchart TB
     class NARRATIVE,JEV external;
 ```
 
+### Diagram breakdown: script
+
+- **Input and parsing:** pasted text or UTF-8 files are checked for supported content, word count and timeline bounds.
+- **Timing:** subtitle cues retain supplied times; plain text receives estimated sentence/paragraph timing at 150 WPM.
+- **Embeddings:** multilingual E5 provides passage retrieval and candidate context.
+- **Narrative:** Cerebras structures the supplied text, with no claims of measured speech or media.
+- **Prediction:** text rules produce findings, risk and a scenario; waveform, voice and visual features stay off.
+- **Jev:** the same bounded routes and validation rules support keep, rewrite, shorten or review recommendations.
+- **Package:** script provenance is preserved without fabricated shots, aligned words, playback proxy or visual observations.
+- **Review:** transcript-first navigation, grounded questions, retention inspection, plans and downloads use the estimated timeline.
+
 The browser preview and Python parser share parsing semantics. Plain text is split into sentences/paragraphs, whitespace is normalised, and each segment gets at least one second at an estimated 150 WPM. SRT/VTT cues retain actual supplied cue times; duration is the **maximum cue end**, so overlapping/out-of-order cues cannot truncate the asset. Subtitle tags are removed; malformed/reversed cues are skipped with warnings. UTF-8 BOMs are supported. API validation requires at least 20 words and a 10-second to one-hour timeline.
 
 `register_script` creates a content/project-scoped workspace and a script asset. The script stage supplies a timed transcript with an empty aligned-word table. Shared embeddings, narrative, prediction, Jev, score and export run against that source. Narrative version 15 suppresses measured WPM/filler-rate claims; export version 9 records user-script provenance. Voice/audio tabs are unavailable. A script can be complete relative to its required stages while speech/audio/visual coverage remains unknown. Estimates are planning aids, not a recording's delivery measurement.
+
+## How to read the graphs and curves
+
+Time runs left to right. The blue vertical line is the shared playhead; the pale blue selected interval links the same moment across views. A selection highlight and a retention sensitivity band have different meanings. Missing measured windows are shown as unknown/hatched or unavailable, rather than zero. Chart colours distinguish series or categories; they do not establish confidence.
+
+| Graph / view | What is plotted | How to interpret it |
+|---|---|---|
+| Viewers still watching | Scenario survival as a percentage of the starting audience | Black is this video's scenario. Dashed grey “Average video” is an assumed neutral baseline, not a measured population average. Pale blue “Range” scales rule strength to 0.5× and 1.5×; it is not a confidence interval. |
+| Numbered curve markers | Highest-ranked excess-loss windows | Numbers rank modelled excess loss, not chronological order or actual viewers lost. Selecting one reveals its interval and linked findings. |
+| Departure pressure | Hazard divided by baseline hazard | 1× means equal modelled pressure; above 1× means greater pressure and below 1× means less. A 1.51× reading means 51% higher assumed instantaneous hazard, not 51% of viewers departing. |
+| Viewers leaving per second | One-second equivalent conditional departure share | A five-point moving average makes local changes readable. Its denominator is the audience still present. Some opening peaks can be axis-capped; tooltips retain their values. |
+| Watch time | Cumulative survival integral, in seconds per starting viewer | The curve rises as viewing time accumulates; its terminal value is estimated AVD. The dashed curve uses the neutral baseline. A rising watch-time curve does not mean retention rises. |
+| Transcript risk / overview risk | Cause-group heuristic scores, aggregated into five-second bars | Colours separate opening/promise, progress, clarity, questions/payoff and delivery. Taller bars indicate stronger rule signals; this is a 0–100 engineering score, not departure probability. |
+| Timeline | Sections, scenario, risk bins, findings, shots, speech and available OCR tracks | Horizontal widths show time spans. Align tracks to inspect co-occurrence; co-occurrence does not prove a causal drop. The overview strip supports navigation and zoom. |
+| Sections / structure | Inferred chapter durations and opening/payoff/outro timings | Inspect how the narrative allocates time. Chapters are inferred topic structure, distinct from measured shot boundaries. |
+| Text words per minute | Transcript density in a time window | Helps inspect dense passages. Supplied/estimated script timing makes this a text-density measure, distinct from recorded speaking rate. |
+| New ideas | Newly encountered terms per analysis window | A lexical load proxy for introducing vocabulary; it does not count verified facts or measure comprehension. |
+| Speaking rate | Aligned-word WPM by voice window | Peaks show faster measured delivery and dips show slower delivery. Interpret against this recording's context; faster is not automatically worse. |
+| Pitch | Estimated fundamental frequency in Hz | Shows waveform-based pitch changes where voiced measurements exist; it does not identify emotion or speaker intent. |
+| Pitch variation | Pitch standard deviation in Hz within a window | Describes local frequency spread. The “±” summary is a variability display, not a confidence interval. |
+| Voiced share | Fraction of analysis frames classed as voiced, from 0 to 1 | Distinguishes voiced signal coverage from pitch height or loudness; it is not the fraction of viewers engaged. |
+| Audio level | RMS level in dBFS | Values nearer 0 indicate stronger digital signal; deep dips often accompany quiet gaps. This is signal level, separate from perceptual loudness. |
+| Loudness | Short-term loudness in LUFS | Shows changes in perceived-level measurement. Overall integrated LUFS summarises the recording; the peak statistic and clipping count describe separate diagnostics. |
+| Silent gaps | Detected quiet intervals with duration | Inspect whether each pause is useful breathing room, a transition or dead air before deciding to shorten it. |
+| Shot strip / inspector | Measured shot starts, durations and sampled frames | Compare a selected shot with the video's typical shot duration and spoken context. A long shot is evidence for review, not proof that viewers disengage. |
+| Retention contribution breakdown | Allocated modelled excess loss by positive feature | Explains which active assumptions contribute to additional departure pressure. These totals are neither observed audience losses nor the terminal gap between curves. |
+
+The example's **60% viewed** is estimated average percentage viewed (APV), rather than the percentage reaching the ending. Its **2:51 average watch time** is estimated AVD. “61% still watching” refers to scenario survival at the selected moment. Findings, word counts and media diagnostics describe that run; none of these screenshots measures audience response.
 
 ## The retention engine: features, hazard and honest attribution
 
@@ -170,13 +296,55 @@ The browser preview and Python parser share parsing semantics. Plain text is spl
 
 `pipeline/predict/features.py` constructs one feature dictionary per second from transcript, validated structure, and optional measured media. Values are clipped to `[0,1]` and scaled by actual overlap with each bin; the final fractional second is preserved. `pipeline/predict/model.py` then uses:
 
-```text
-h0_i = [H0(t_i + dt_i) - H0(t_i)] / dt_i
-h_i  = h0_i × exp(sum of deduplicated log-hazard parts × scenario scale)
-S_i  = S_(i-1) × exp(-h_i × dt_i), with S_0 = 1
-AVD  = Σ S_(i-1) × [1 - exp(-h_i × dt_i)] / h_i
-APV  = 100 × AVD / duration
-```
+### Symbols and calculation order
+
+| Symbol | Meaning / unit |
+|---|---|
+| $T$ | Actual media duration, or supplied/estimated script duration, in seconds |
+| $t_i, \Delta t_i$ | Bin start and duration; normally one second, with a fractional final bin |
+| $H_0(t)$ | Cumulative assumed neutral hazard, dimensionless |
+| $h_{0,i}, h_i$ | Neutral and scenario hazard, per second |
+| $L_i$ | Sum of selected, weighted log-hazard contributions in a bin |
+| $c$ | Rule-strength scale: 1 centrally, 0.5 and 1.5 for sensitivity |
+| $S_i$ | Fraction of the starting audience remaining after bin $i$; $S_0=1$ |
+
+**1. Convert the neutral cumulative hazard into a bin rate.**
+
+$$
+h_{0,i}=\frac{H_0(t_i+\Delta t_i)-H_0(t_i)}{\Delta t_i}
+$$
+
+**2. Apply the deduplicated evidence contributions.**
+
+$$
+h_i=h_{0,i}\exp(cL_i)
+$$
+
+Within each positive cause group, retain its largest active weighted feature. If none is active, retain at most one protective contribution, capped at $-0.1$. Add signed measured micro-variation separately. This produces $L_i$; it is not the sum of every overlapping symptom.
+
+**3. Propagate the remaining audience through the bin.**
+
+$$
+S_i=S_{i-1}\exp(-h_i\Delta t_i)
+$$
+
+Nonnegative hazard makes survival non-increasing. Pressure can rise or fall while the survival curve continues downward; a lower hazard means a gentler slope, not viewers returning.
+
+**4. Integrate watch time exactly within each constant-hazard bin.**
+
+$$
+\mathrm{AVD}=\sum_i S_{i-1}\frac{1-\exp(-h_i\Delta t_i)}{h_i}
+$$
+
+At zero hazard, that bin contributes $S_{i-1}\Delta t_i$. AVD has units of seconds per starting viewer.
+
+$$
+\mathrm{APV}=100\frac{\mathrm{AVD}}{T},\qquad
+\mathrm{End\ retention}=100S_n
+$$
+
+APV averages the portion watched across the entire scenario; end retention describes only the final point. They are different quantities.
+
 
 The zero-hazard integral uses `S × dt`. Default anchors are 80% at 30 seconds and 45% at the end. They apply to a **neutral baseline**, not directly to the analysed video's curve. The baseline is Weibull-like, shape `k=0.6`, with an ending multiplier `1.5` over the final `5%`; it matches both anchors exactly for videos longer than 30 seconds. Clips of 30 seconds or less use the terminal anchor only: there is no observed 30-second point inside such a clip. Allowed advanced ranges are shape `0.3–1.0`, multiplier `1–3`, and end fraction `0–0.2`.
 
@@ -348,10 +516,17 @@ Every item below has four support points. Weights are log-hazard engineering pri
 
 For excess attribution, the model compares the two hazards on the same remaining audience at the start of each bin:
 
-```text
-excess_i = S_(i-1) × [exp(-h0_i × dt_i) - exp(-h_i × dt_i)]  if h_i > h0_i
-           0 otherwise
-```
+$$
+E_i=\max\left(0,\ S_{i-1}\left[\exp(-h_{0,i}\Delta t_i)-\exp(-h_i\Delta t_i)\right]\right)
+$$
+
+Here $E_i$ is additional modelled loss relative to the neutral hazard, using the same scenario audience at the bin's start. For a positive log-hazard part $p_{i,j}$, its allocation is:
+
+$$
+A_{i,j}=E_i\frac{p_{i,j}}{\sum_{k:p_{i,k}>0}p_{i,k}}
+$$
+
+If there are no positive parts, no positive attribution is allocated.
 
 Positive parts share that excess proportionally. Cumulative feature totals are **not** the terminal survival difference and do not count observed real viewers. Ten-second windows are ranked by excess loss, spaced at least 15 seconds apart, with up to eight retained and linked to their dominant causes/quotes. AVD integrates survival continuously within each bin; APV uses actual video duration. Shortening can increase APV while reducing seconds watched, so comparisons report both.
 
