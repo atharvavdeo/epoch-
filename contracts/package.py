@@ -27,7 +27,7 @@ from contracts.entities import (
 GiB, MiB = 1024 ** 3, 1024 ** 2
 LIMITS = {"zip_bytes": 2 * GiB, "expanded_bytes": 5 * GiB, "entries": 20_000, "json_bytes": 100 * MiB, "image_bytes": 25 * MiB,
           "proxy_bytes": 2 * GiB, "ratio": 100, "path_len": 240}
-ALLOWED_SUFFIX = {".json", ".jsonl", ".jpg", ".mp4", ".txt", ".md"}
+ALLOWED_SUFFIX = {".json", ".jsonl", ".jpg", ".mp4", ".txt", ".md", ".wav", ".zip", ".csv", ".srt", ".vtt"}
 JSONL_MODELS = {"transcript": TranscriptSegment, "words": Word, "shots": Shot, "frames": Frame, "ocr": OCRTrack,
                 "signals": Signal, "observations": Observation, "evidence": Evidence, "promises": Promise, "issues": Issue,
                 "suggestions": EditSuggestion, "risk": RiskBin, "scenarios": RetentionScenario, "coverage": Coverage,
@@ -80,7 +80,13 @@ def _check_entries(z: zipfile.ZipFile) -> None:
         suffix = Path(n).suffix.lower()
         if suffix not in ALLOWED_SUFFIX:
             raise PackageError("disallowed_file_type", f"{n}: only {sorted(ALLOWED_SUFFIX)} are accepted")
-        limit = LIMITS["json_bytes"] if suffix in (".json", ".jsonl", ".txt", ".md") else (
+        if suffix in (".wav", ".zip") and n not in (
+            "diagnostics/audio/audio16k.wav", "diagnostics/visual_job/colab.visualjob.zip"
+        ):
+            raise PackageError("disallowed_file_type", f"{n}: only named diagnostic audio/job downloads are accepted")
+        if suffix in (".csv", ".srt", ".vtt") and not n.startswith("reports/"):
+            raise PackageError("disallowed_file_type", f"{n}: text exports must be in reports/")
+        limit = LIMITS["json_bytes"] if suffix in (".json", ".jsonl", ".txt", ".md", ".csv", ".srt", ".vtt") else (
             LIMITS["image_bytes"] if suffix == ".jpg" else LIMITS["proxy_bytes"])
         if i.file_size > limit:
             raise PackageError("entry_too_large", f"{n} is {i.file_size} bytes (limit {limit})")
@@ -147,7 +153,7 @@ def validate_package(path: Path) -> ValidatedPackage:
             raise PackageError("missing_files", f"listed files missing: {sorted(missing)[:5]}")
         for rel, a in listed.items():
             suffix = Path(rel).suffix.lower()
-            limit = LIMITS["json_bytes"] if suffix in (".json", ".jsonl", ".txt", ".md") else (
+            limit = LIMITS["json_bytes"] if suffix in (".json", ".jsonl", ".txt", ".md", ".csv", ".srt", ".vtt") else (
                 LIMITS["image_bytes"] if suffix == ".jpg" else LIMITS["proxy_bytes"])
             sha, n, head = _hash_member(z, rel, limit)
             if sha != a.sha256 or n != a.bytes:
@@ -156,6 +162,10 @@ def validate_package(path: Path) -> ValidatedPackage:
                 raise PackageError("bad_image", f"{rel} is not a JPEG")
             if suffix == ".mp4" and head[4:8] != b"ftyp":
                 raise PackageError("bad_video", f"{rel} is not an MP4")
+            if suffix == ".wav" and (head[:4] != b"RIFF" or head[8:12] != b"WAVE"):
+                raise PackageError("bad_audio", f"{rel} is not a WAV")
+            if suffix == ".zip" and head[:4] != b"PK\x03\x04":
+                raise PackageError("bad_archive", f"{rel} is not a ZIP")
 
         def model(name, cls):
             try:

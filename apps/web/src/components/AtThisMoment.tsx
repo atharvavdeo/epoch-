@@ -43,12 +43,12 @@ export function AtThisMoment({ segments, chapters, issues, pred, rel, onOpenFind
       </section>
 
       {ps && <section>
-        <h4>Predicted <span className="pill uncal">uncalibrated</span></h4>
-        <div className="atm-big"><b>{pc(ps.retention)}</b> <span className="faint">still watching ({pc(ps.lower)}–{pc(ps.upper)})</span></div>
+        <h4>Scenario <span className="pill uncal">uncalibrated</span></h4>
+        <div className="atm-big"><b>{pc(ps.retention)}</b> <span className="faint">assumed remaining ({pc(ps.lower)}–{pc(ps.upper)})</span></div>
         {causes.length > 0
-          ? <p className="atm-why">Why viewers leave here: <b>{causes.map(([c]) => FEATURE_LABEL[c] ?? c).join(", ")}</b></p>
-          : <p className="atm-why faint">No extra drop-off predicted here beyond an average video.</p>}
-        {ps.protective.length > 0 && <p className="atm-why faint">Holding viewers: {ps.protective.map((c) => FEATURE_LABEL[c] ?? c).join(", ")}</p>}
+          ? <p className="atm-why">Scenario drivers here: <b>{causes.map(([c]) => FEATURE_LABEL[c] ?? c).join(", ")}</b></p>
+          : <p className="atm-why faint">No extra loss assumed here beyond the baseline.</p>}
+        {ps.protective.length > 0 && <p className="atm-why faint">Potential protective cues: {ps.protective.map((c) => FEATURE_LABEL[c] ?? c).join(", ")}</p>}
       </section>}
 
       {(q || abstract) && <section>

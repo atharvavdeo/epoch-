@@ -1,5 +1,7 @@
 # Epoch — retention review for long-form video
 
+**Mac run verified (2026-10-03):** the video [Ontology vs Metadata](https://youtu.be/ve7AA01vplE) ran through real local media, Whisper, alignment, OCR, embeddings, Cerebras, prediction, scoring and package import. [Open the local review](http://127.0.0.1:8765/runs/5a80ca3b-788c-551f-bb5f-0a4cc2fc546b). The Outputs tab exposes 462 files (137.2 MB), including measurements, all sampled frames, readable reports, original MP4, extracted WAV, provenance and the Colab job. Visual inference was not run; retention remains uncalibrated.
+
 Epoch reads a 5–15 minute video (or just its audio) and shows a creator **where viewers are likely to leave, why, and what to change without losing content**.
 
 - **Where it runs:** everything runs locally (Windows today, macOS instructions below).
@@ -95,14 +97,14 @@ cd apps/web && npm install && npx vite build && cd ../..
 
 ## 3. Run it on a Mac (Apple Silicon)
 
-The code is cross-platform. Interpreters are resolved as `.venvs/<env>/bin/python` when `Scripts/python.exe` does not exist. The **locks in `locks/` were compiled on Windows**, so on a Mac you compile your own from `requirements/*.in`.
+The code is cross-platform. Interpreters are resolved as `.venvs/<env>/bin/python` when `Scripts/python.exe` does not exist. The **original locks in `locks/` were compiled on Windows**, so on a Mac you compile your own from `requirements/*.in`.
 
 ```bash
 brew install python@3.11 uv node git
 cd epoch-
 for env in media api asr; do
   uv venv --python 3.11 .venvs/$env
-  uv pip compile requirements/$env.in -o locks/$env.mac.txt          # mac-specific lock (do not overwrite the Windows ones)
+  uv pip compile --python .venvs/$env/bin/python requirements/$env.in -o locks/$env.mac.txt          # mac-specific lock (do not overwrite the Windows ones)
   uv pip sync --python .venvs/$env/bin/python locks/$env.mac.txt
   uv pip install --python .venvs/$env/bin/python --no-deps -e .
 done
@@ -119,7 +121,7 @@ cd apps/web && npm install && npx vite build && cd ../..
 - **ffmpeg** comes from the `imageio-ffmpeg` wheel; no Homebrew ffmpeg is needed.
 - **Speech to text** runs on the CPU. CTranslate2 has no Metal backend, and the pipeline pins FP32 (D16) for reproducibility. An M3 is roughly as fast as this Windows laptop or faster: plan for about 1–2.5× the video length.
 - **Never run the Qwen VLM locally** (owner rule); Colab only.
-- **Untested on a Mac:** nothing has been run on macOS yet. The likely friction points are `torch`/`torchaudio` wheel versions in `asr.in` and `soundfile`'s libsndfile (bundled in the wheel on arm64).
+- **Verified on Apple Silicon:** the English video above ran end to end through the available local stages, including OCR. Whisper took 282 s for 286 s of media; all 858 words aligned. Hindi OCR passed a rendered probe; Hindi speech and mixed-language alignment remain unverified. The Mac-specific locks and fonts are used for run provenance and OCR qualification.
 
 ---
 
@@ -514,7 +516,7 @@ Source: [PLANNER/FEATURES.md](PLANNER/FEATURES.md). P1/P2/B are the planner's ph
 - **Script-only analysis** has no backend.
 - **ASR on CPU** takes about 40 minutes for a 14-minute video.
 - **Chat** depends on Cerebras rate limits (free tier ~50 s Retry-After).
-- **macOS** is untested.
+- **macOS:** one real English video ran through the local pipeline and website; broader media/language coverage is not established.
 
 ## 12. Tests
 ```bash
@@ -522,3 +524,6 @@ Source: [PLANNER/FEATURES.md](PLANNER/FEATURES.md). P1/P2/B are the planner's ph
 .venvs/api/Scripts/python.exe -m pytest tests/test_api.py
 .venvs/media/Scripts/python.exe scripts/rag_eval.py ../epoch-data/validation/mrbeast_transcript.json   # third-party transcript, not in git
 ```
+
+
+Current upgraded review: [Overview / Text / Voice / Audio](http://127.0.0.1:8765/runs/09a2301a-4ebe-59c8-942b-5dc118b3d2d4). Includes hybrid transcript RAG, evidence-backed review candidates, typed Jev second opinions, direct waveform diagnostics and 466 downloadable artifacts. Retention remains an uncalibrated scenario. See HANDOFF.md for validation and limits.

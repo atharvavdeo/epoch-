@@ -4,8 +4,8 @@ import { api, fmt, type ChatAnswer, type ChatMsg } from "../api";
 import { usePlayhead } from "../store";
 
 const s2 = (ms: number) => fmt(ms).replace(/\.\d$/, "");
-const STARTERS = ["Why do viewers leave in the first 30 seconds?", "Which questions does the video leave open the longest?",
-  "What is the safest edit that keeps every point?", "Explain the biggest predicted drop."];
+const STARTERS = ["Which first-30-second passages deserve a clarity review?", "Which questions does the video leave open the longest?",
+  "What is the safest edit that keeps every point?", "Explain the strongest transcript review cue and its alternative explanation."];
 
 /** Grounded assistant: answers only from this run's transcript, findings and text-model prediction. */
 export function ChatPanel({ runId, onClose }: { runId: string; onClose: () => void }) {

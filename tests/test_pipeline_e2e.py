@@ -148,4 +148,20 @@ def test_end_to_end(tmp_path, monkeypatch):
     # idempotent: same inputs re-export to the same cached package
     ex2 = run_stage(ws, export_spec(src), export_stage(src, ws))
     assert next(ex2.dir.glob("*.retention.zip")).read_bytes() == pkg.read_bytes()
+
+    # Identical words can appear simultaneously in different screen positions.
+    # Preserve both spatial tracks through a fully validated package.
+    grid = json.loads(ws.current("frames").path("grid.json").read_text())
+    tracks = [{"start_ms": 0, "end_ms": 5000, "text": "TEST", "detector_confidence": 0.9,
+               "samples": [{"frame_id": grid[0]["frame_id"], "quad": [[x, 0], [x + 10, 0], [x + 10, 10], [x, 10]],
+                            "observed_text": "TEST", "confidence": 0.9}]} for x in (0, 40)]
+    inject("ocr", {"ocr_tracks.json": tracks})
+    from pipeline.orchestration.settings import models_dir
+    write_json(models_dir() / "manifests" / "paddleocr.json", {"probe": {}, "models": {}})
+    with_ocr = run_stage(ws, export_spec(src), export_stage(src, ws))
+    assert with_ocr.status == "complete", with_ocr.data.get("error")
+    checked = validate_package(next(with_ocr.dir.glob("*.retention.zip")))
+    assert len(checked.records["ocr"]) == 2
+    assert len({row.track_id for row in checked.records["ocr"]}) == 2
+    assert checked.records["ocr"][0].samples != checked.records["ocr"][1].samples
     shutil.rmtree(tmp_path / "colab", ignore_errors=True)

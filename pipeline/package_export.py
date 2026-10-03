@@ -48,9 +48,9 @@ def code_revision() -> str:
 
 
 def export_spec(source: dict) -> StageSpec:
-    return StageSpec(name="export", version="4", deps=("probe", "proxy", "score"),
+    return StageSpec(name="export", version="7", deps=("probe", "proxy", "score"),
                      optional_deps=("audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual", "embed",
-                                    "narrative", "predict"),
+                                    "narrative", "predict", "voice", "jev"),
                      config={"schema": SCHEMA_VERSION, "producer": PRODUCER_VERSION},
                      extra={"project": {k: source["project"][k] for k in ("project_id", "title", "category", "declared_language")},
                             "asset_id": source["asset_id"]})
@@ -101,6 +101,8 @@ def export_stage(source: dict, ws):
                               else f"stage {s} {'not run' if rec is None else rec.status}")
         # ---------------------------------------------------------- media + records
         prox = put("media/proxy.mp4", d["proxy"].path("proxy.mp4"), kind="proxy", stage="proxy")
+        if Path(source["path"]).suffix.lower() == ".mp4":
+            put("media/source.mp4", Path(source["path"]), kind="source_video", stage="probe")
         tr = read_json(d["align"].path("transcript.json")) if "align" in d else None
         evidence: dict[str, dict] = {}
         signals: list[dict] = []
@@ -193,8 +195,8 @@ def export_stage(source: dict, ws):
         if "ocr" in d:
             from pipeline.speech.common import language_hint
 
-            for t in read_json(d["ocr"].path("ocr_tracks.json")):
-                ocr_rows.append({"track_id": det_uuid("ocr", source["sha256"], t["start_ms"], t["text"]), "interval": _ms(t),
+            for index, t in enumerate(read_json(d["ocr"].path("ocr_tracks.json"))):
+                ocr_rows.append({"track_id": det_uuid("ocr", source["sha256"], index, t["start_ms"], t["text"]), "interval": _ms(t),
                                  "text": t["text"], "language": language_hint(t["text"], source["project"]["declared_language"]),
                                  "samples": [{k: s[k] for k in ("frame_id", "quad", "observed_text", "confidence")} for s in t["samples"]],
                                  "visibility_precision": "sampled", "detector_confidence": t["detector_confidence"]})
@@ -269,7 +271,7 @@ def export_stage(source: dict, ws):
             vm = vis_info["model"]
             models.append({"role": "vlm", "model_id": vm["repo"], "revision": vm["revision"], "weight_digest": vm.get("manifest_digest"),
                            "dtype": vm.get("dtype", "bfloat16"), "device": "colab-gpu"})
-        locks = [{"name": f"{e}.txt", "sha256": sha256_file(lock_path(e))} for e in ("media", "asr", "ocr", "api", "vlm")
+        locks = [{"name": lock_path(e).name, "sha256": sha256_file(lock_path(e))} for e in ("media", "asr", "ocr", "api", "vlm")
                  if lock_path(e).exists()]
         prompts = [{"prompt_id": p.stem, "sha256": sha256_file(p)} for p in sorted((REPO_ROOT / "prompts").glob("*.md"))]
         provenance = {"code_revision": code_revision(), "environment_locks": locks, "models": models, "prompts": prompts,
@@ -294,6 +296,14 @@ def export_stage(source: dict, ws):
         put("provenance/models.json", obj=models, kind="provenance", stage="score")
         put("provenance/prompts.json", obj=prompts, kind="provenance", stage="score")
         put("provenance/llm_usage.json", obj=nar_llm, kind="provenance", stage="narrative")
+        if "ocr" in d:
+            from pipeline.orchestration.settings import models_dir
+            ocr_manifest = read_json(models_dir() / "manifests" / "paddleocr.json")
+            put("provenance/ocr_qualification.json", obj={
+                "probe": ocr_manifest["probe"],
+                "models": {name: {"digest": value["digest"], "files": value["files"]}
+                           for name, value in ocr_manifest["models"].items()},
+            }, kind="provenance", stage="ocr")
         put("provenance/dismissed_candidates.json", obj={"dismissed": (nar or {}).get("dismissed", []),
                                                          "unadjudicated": (nar or {}).get("unadjudicated", [])},
             kind="provenance", stage="narrative")
@@ -304,6 +314,44 @@ def export_stage(source: dict, ws):
         put("provenance/stage-events.jsonl", rows=[json.loads(x) for x in events if x.strip()], kind="provenance", stage="score")
         errs = [s["error"] for s in stages if s.get("error")]
         put("provenance/errors.jsonl", rows=errs, kind="provenance", stage="score")
+
+        # Preserve public stage outputs in this immutable run, alongside normalized tables.
+        # Internal arguments/logs and runtime source bundles are deliberately excluded.
+        diagnostics = {
+            "probe": ["probe.json"], "proxy": ["proxy.json"],
+            "audio": ["audio.json", "audio16k.wav"],
+            "video_scan": ["scan.json", "frame_index.json", "shots.json", "filters.json"],
+            "frames": ["grid.json"], "asr": ["vad.json", "asr_segments.json"],
+            "align": ["transcript.json"], "ocr": ["ocr_frames.jsonl", "ocr_tracks.json"],
+            "visual_job": ["job_summary.json"], "visual": ["visual.json"],
+            "embed": ["chunks.json"], "narrative": ["narrative.json"],
+            "predict": ["prediction.json"], "voice": ["deepdive.json"], "jev": ["jev.json"], "score": ["score.json"],
+        }
+        for stage, names in diagnostics.items():
+            if stage not in d:
+                continue
+            for name in names:
+                src = d[stage].path(name)
+                if src.is_file():
+                    put(f"diagnostics/{stage}/{name}", src, kind="diagnostic", stage=stage)
+        if "frames" in d:
+            for image in sorted(d["frames"].dir.glob("src/*.jpg")):
+                put(f"samples/{image.name}", image, kind="frame_image", stage="frames")
+        if "visual_job" in d:
+            summary = read_json(d["visual_job"].path("job_summary.json"))
+            put("diagnostics/visual_job/colab.visualjob.zip", d["visual_job"].path(summary["zip"]),
+                kind="diagnostic", stage="visual_job")
+        from pipeline.outputs import export_outputs
+        if tr:
+            from pipeline.reasoning.relations import analyse
+            chapters = [{"label": (s.get("value") or {}).get("label", "") if isinstance(s.get("value"), dict) else "",
+                         **s["interval"]} for s in signals if s["feature_id"] == "F61"]
+            put("diagnostics/narrative/transcript_relations.json", obj=analyse(tr["segments"], chapters),
+                kind="diagnostic", stage="narrative")
+        readable = export_outputs(ws, source)
+        for report in sorted(readable.iterdir()):
+            if report.is_file() and report.name != "README.txt" and report.suffix in (".json", ".csv", ".txt", ".srt", ".vtt"):
+                put(f"reports/{report.name}", report, kind="report", stage="score")
 
         manifest = {"schema_version": SCHEMA_VERSION, "package_id": det_uuid("package", run_id),
                     "project_id": source["project"]["project_id"], "asset_id": source["asset_id"], "run_id": run_id,

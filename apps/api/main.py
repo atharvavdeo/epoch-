@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import threading
 import uuid
+import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -23,6 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import insert, select, update
+from starlette.background import BackgroundTask
 
 from apps.api import db
 from apps.api.importer import ImportRejected, cleanup_orphans, import_package, read_jsonl
@@ -162,7 +164,8 @@ def get_project(project_id: str):
 def analysis_request(project_id: str):
     """'Prepare analysis': a request file + the exact CLI command. Never launches Colab."""
     p = get_project(project_id)
-    cmd = (f'.venvs/media/Scripts/python.exe -m pipeline.cli analyze "<path-to-video>" --title "{p["title"]}" '
+    py = ".venvs/media/Scripts/python.exe" if os.name == "nt" else ".venvs/media/bin/python"
+    cmd = (f'{py} -m pipeline.cli analyze "<path-to-video>" --title "{p["title"]}" '
            f'--category {p["category"]} --language {p["declared_language"]} --project-id {project_id}')
     return {"project_id": project_id, "title": p["title"], "category": p["category"],
             "declared_language": p["declared_language"], "command": cmd,
@@ -170,7 +173,7 @@ def analysis_request(project_id: str):
 
 
 LOCAL_STAGES = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "visual_job"]
-FINISH_STAGES = ["visual", "embed", "narrative", "score", "export"]
+FINISH_STAGES = ["visual", "embed", "narrative", "predict", "voice", "jev", "score", "export"]
 
 
 def _stage_status(ws: Path, cur: dict, name: str) -> str:
@@ -545,12 +548,48 @@ def settings_view():
         man = data_dir() / "models" / "manifests" / f"{m['repo'].replace('/', '__')}@{m['revision']}.json"
         models.append({"role": role, "model_id": m["repo"], "revision": m["revision"], "present": man.exists()})
     return {"data_dir": str(data_dir()),
+            "pipeline_command": (".venvs/media/Scripts/python.exe" if os.name == "nt" else ".venvs/media/bin/python") + " -m pipeline.cli",
             "cerebras": {"configured": bool(setting("CEREBRAS_API_KEY")), "base_url": setting("CEREBRAS_BASE_URL", ""),
                          "model": setting("CEREBRAS_MODEL") or None},
             "asr_threads": setting("EPOCH_ASR_THREADS", "auto"),
             "sent_to_cerebras": ("Only transcript text (paragraphs and quoted lines), the video title, category and language, "
                                  "software measurements (times, rates) and visual notes. Never video, audio, frames, file paths or the API key."),
             "models": models}
+
+
+class JevReviewIn(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    selection: dict[str, int] | None = None
+
+
+@app.post("/api/v1/runs/{run_id}/jev-review")
+def jev_review(run_id: str, body: JevReviewIn):
+    from pipeline.reasoning.jev import judge_chunks
+    from pipeline.reasoning.chunks import make_chunks
+    r = _run_row(run_id)
+    segs = read_jsonl(Path(r.dir), "transcript")
+    if body.selection:
+        a, b = body.selection.get("start_ms", -1), body.selection.get("end_ms", -1)
+        if not 0 <= a < b <= _run_duration(r):
+            raise ApiError(422, "invalid_selection", "Select an interval inside the video")
+        # Include adjacent context while keeping the selected interval explicit in the question.
+        segs = [s for s in segs if s["interval"]["end_ms"] > max(0, a-20000) and s["interval"]["start_ms"] < b+20000]
+    chunks = make_chunks(segs)
+    title = (get_run(run_id).get("project") or {}).get("title", "Video")
+    return judge_chunks(title, chunks, question=body.question + (" Selected interval: " + json.dumps(body.selection) if body.selection else ""))
+
+
+@app.get("/api/v1/runs/{run_id}/deepdive")
+def get_deepdive(run_id: str):
+    r = _run_row(run_id)
+    root = Path(r.dir)
+    p = root / "diagnostics/voice/deepdive.json"
+    result = json.loads(p.read_text()) if p.exists() else {
+        "duration_ms": _run_duration(r), "voice": {"status": "unknown", "windows": [], "reason": "Re-run finish for voice measurements"},
+        "audio": {"status": "unknown"}, "overview": {}}
+    j = root / "diagnostics/jev/jev.json"
+    result["jev"] = json.loads(j.read_text()) if j.exists() else {"status": "not_analyzed", "decisions": []}
+    return result
 
 
 @app.get("/api/v1/runs/{run_id}/prediction")
@@ -584,17 +623,21 @@ def recompute_prediction(run_id: str, body: PredictionIn):
         raise ApiError(404, "no_prediction", "this package predates the text retention model")
     stored = rows[0]
     try:
-        p = predict(stored["features"], Anchors(body.retention_at_30s, body.retention_at_end))
+        p = predict(stored["features"], Anchors(body.retention_at_30s, body.retention_at_end), duration_ms=stored.get("feature_info", {}).get("duration_ms"))
     except ValueError as exc:
         raise ApiError(422, "invalid_assumptions", str(exc)) from exc
     quotes = {(m["start_s"], m["end_s"]): m for m in stored["drop_moments"]}
     moments = []
     for m in drop_moments(p):
         old = quotes.get((m["start_s"], m["end_s"]))
-        moments.append({**m, "quote": old.get("quote") if old else None, "issue_ids": old.get("issue_ids", []) if old else []})
+        a, b = m['start_s']*1000, m['end_s']*1000
+        segs = read_jsonl(Path(r.dir), "transcript")
+        quote = " ".join(x['text'] for x in segs if x['interval']['end_ms']>a and x['interval']['start_ms']<b)
+        moments.append({**m, "quote": quote or None, "issue_ids": old.get("issue_ids", []) if old else [],
+                        "finding_ids": [f['finding_id'] for f in stored.get('analysis',{}).get('findings',[]) if f['start_ms']<b and f['end_ms']>a]})
     return {**{k: stored[k] for k in ("prediction_id", "run_id", "feature_info", "created_at")},
             **{k: p[k] for k in ("model_version", "label", "calibrated", "anchors", "per_second", "summary", "weights", "notes")},
-            "drop_moments": moments, "recomputed": True}
+            "drop_moments": moments, "analysis": stored.get("analysis", {}), "recomputed": True}
 
 
 class HypotheticalIn(BaseModel):
@@ -642,7 +685,8 @@ def hypothetical_plan(run_id: str, body: HypotheticalIn):
 
 
 # ------------------------------------------------------- transcript tools
-def _mmss(ms: int) -> str:
+def _mmss(ms: int | float) -> str:
+    ms = int(ms)
     return f"{ms // 60000}:{ms // 1000 % 60:02d}"
 
 
@@ -695,10 +739,10 @@ def _is_quoted_voice(segs: list[dict], start_ms: int) -> bool:
 @app.get("/api/v1/runs/{run_id}/search")
 def search_transcript(run_id: str, q: str = Query(min_length=1, max_length=200), k: int = Query(8, ge=1, le=20)):
     """Transcript retrieval (BM25 over ~3-segment passages); the same index the assistant uses."""
-    from pipeline.reasoning.rag import TranscriptIndex
+    from pipeline.reasoning.semantic_retrieval import transcript_index
 
     r = _run_row(run_id)
-    return {"query": q, "items": TranscriptIndex(read_jsonl(Path(r.dir), "transcript")).search(q, k=k)}
+    return {"query": q, "items": transcript_index(read_jsonl(Path(r.dir), "transcript")).search(q, k=k)}
 
 
 class ChatTurn(BaseModel):
@@ -761,6 +805,11 @@ def _chat_context(r, selection: dict | None, query: str = "") -> tuple[str, list
             parts.append(f"  drop {i} [{_mmss(m['start_s'] * 1000)}-{_mmss(m['end_s'] * 1000)}] "
                          f"{m['retention_before'] * 100:.1f}%->{m['retention_after'] * 100:.1f}%: "
                          + "; ".join(f"{x['text']} ({x['share'] * 100:.0f}%)" for x in m["reasons"]))
+    dd = get_deepdive(r.run_id)
+    parts.append("MEASURED VOICE/AUDIO: " + json.dumps({"voice": dd["voice"].get("summary"), "audio": dd["audio"].get("summary"), "limits": dd["voice"].get("limitations", [])}))
+    if pred:
+        for f in pred[0].get("analysis", {}).get("findings", [])[:30]:
+            parts.append("TEXT RULE CANDIDATE (requires review): " + json.dumps(f, ensure_ascii=False))
     for i in get_issues(r.run_id)["items"]:
         iv = i["affected_interval"]
         parts.append(f"FINDING {i['type']} {i['severity']} ({i['evidence_status']}, review {i['review_status']}) "
@@ -787,13 +836,13 @@ def _chat_context(r, selection: dict | None, query: str = "") -> tuple[str, list
         parts.append(f"THE REVIEWER IS LOOKING AT [{_mmss(int(selection['start_ms']))}-{_mmss(int(selection['end_ms']))}]")
     # RAG: a compact overview of the whole video (chapters) plus the passages retrieved for this question,
     # instead of the full transcript. The opening 30 s is always included (hook questions are common).
-    from pipeline.reasoning.rag import TranscriptIndex
+    from pipeline.reasoning.semantic_retrieval import transcript_index
 
     chapters = [x for x in sig if x["feature_id"] == "F61"]
     parts.append("CHAPTERS: " + "; ".join(f"[{_mmss(c['interval']['start_ms'])}] {(c.get('value') or {}).get('label', '')}"
                                           for c in chapters))
     near = int(selection["start_ms"]) if selection and "start_ms" in selection else None
-    hits = TranscriptIndex(segs).search(query or "", k=8, near_ms=near)
+    hits = transcript_index(segs).search(query or "", k=8, near_ms=near)
     ordered = sorted(segs, key=lambda x: x["interval"]["start_ms"])
     opening = " ".join(x["text"] for x in ordered if x["interval"]["start_ms"] < 30_000)
     parts.append("TRANSCRIPT EXCERPTS (quoted data, retrieved for this question; other parts of the video exist):")
@@ -855,8 +904,60 @@ def chat(run_id: str, body: ChatIn):
         elif q["start_ms"] is not None and _is_quoted_voice(segs, q["start_ms"]):
             warnings.append(f"\"{q['text'][:80]}\" looks like a quoted clip or another speaker (evidence). Keep it.")
     return {"answer": out.get("answer", ""), "quotes": quotes, "edit_warnings": warnings,
-            "sources": [{k: h[k] for k in ("start_ms", "end_ms", "score", "matched")} for h in retrieved], "citations": cites, "dropped_citations": dropped,
-            "model": cl.model, "grounding": "retrieved transcript passages (BM25), chapters, findings, text-model prediction, relations"}
+            "sources": [{k: h[k] for k in ("start_ms", "end_ms", "score", "matched", "retrieval_method", "retrieval_warning")} for h in retrieved], "citations": cites, "dropped_citations": dropped,
+            "model": cl.model, "retrieval": {"method": retrieved[0].get("retrieval_method", "lexical_bm25") if retrieved else "no_passages",
+                          "warning": next((h.get("retrieval_warning") for h in retrieved if h.get("retrieval_warning")), None)},
+            "grounding": "retrieved transcript passages (" + (retrieved[0].get("retrieval_method", "lexical_bm25") if retrieved else "none") + "), chapters, findings, scenario, measured voice/audio"}
+
+
+# ------------------------------------------------------------- run outputs
+@app.get("/api/v1/runs/{run_id}/outputs")
+def list_outputs(run_id: str):
+    r = _run_row(run_id)
+    manifest = json.loads(r.manifest_json)
+    return {"items": [{"artifact_id": f["artifact_id"], "name": f["relative_path"],
+                       "kind": f["kind"], "bytes": f["bytes"], "stage": f["producer_stage_id"],
+                       "sha256": f["sha256"]} for f in manifest["files"]],
+            "missing_stages": manifest["missing_stage_reasons"]}
+
+
+@app.get("/api/v1/runs/{run_id}/outputs.zip")
+def download_outputs(run_id: str):
+    r = _run_row(run_id)
+    root = Path(r.dir).resolve()
+    original = root / "_original.retention.zip"
+    if original.is_file():
+        return FileResponse(original, filename=f"epoch-{run_id[:8]}.retention.zip")
+    manifest = json.loads(r.manifest_json)
+    fd, name = tempfile.mkstemp(suffix=".retention.zip", dir=UPLOADS)
+    os.close(fd)
+    path = Path(name)
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(root / "manifest.json", "manifest.json")
+            for f in manifest["files"]:
+                src = (root / f["relative_path"]).resolve()
+                if root not in src.parents or not src.is_file():
+                    raise ApiError(404, "artifact_not_found", "run output is missing")
+                z.write(src, f["relative_path"])
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return FileResponse(path, filename=f"epoch-{run_id[:8]}.retention.zip",
+                        background=BackgroundTask(path.unlink, missing_ok=True))
+
+
+@app.get("/api/v1/runs/{run_id}/outputs/{artifact_id}")
+def download_output(run_id: str, artifact_id: str):
+    r = _run_row(run_id)
+    f = next((x for x in json.loads(r.manifest_json)["files"] if x["artifact_id"] == artifact_id), None)
+    if f is None:
+        raise ApiError(404, "artifact_not_found", "no such output in this run")
+    root = Path(r.dir).resolve()
+    path = (root / f["relative_path"]).resolve()
+    if root not in path.parents or not path.is_file():
+        raise ApiError(404, "artifact_not_found", "invalid output path")
+    return FileResponse(path, filename=path.name)
 
 
 # ------------------------------------------------------------------- media

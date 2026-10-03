@@ -18,11 +18,12 @@ The product diagnoses editable causes of possible audience drop-off before publi
 10. [Module ownership](MODULES.md): responsibilities and intended code layout.
 11. [Risks and backlog](RISKS.md): failure handling, triggers for rethinking, deferred work.
 12. [Research](RESEARCH.md): primary sources, inspected versions and unresolved runtime evidence.
-13. [Original UI guide](UI_REFERENCE.md): verbatim user reference; UI/UX detailing is deferred.
+13. [Brand and product experience](BRAND_DESIGN.md): screen layouts, visual hierarchy, progressive disclosure, interaction states and design acceptance.
+14. [Original UI guide](UI_REFERENCE.md): verbatim user reference for palette and visual components.
 
 ## Authority and change control
 
-PRD owns scope, FEATURES owns feature phase/status, Schema owns field/enumeration contracts, RETENTION_MODEL owns formulas, COLAB_RUNBOOK owns runtime profiles and recovery budgets, TRD owns component interfaces. DesignDecisions records why. Other files link to these authorities rather than overriding them. In conflicts, stop the affected implementation, record the discrepancy, and reconcile these documents before proceeding. Direct subsequent user instructions supersede this baseline.
+PRD owns scope, FEATURES owns feature phase/status, Schema owns field/enumeration contracts, RETENTION_MODEL owns formulas, COLAB_RUNBOOK owns runtime profiles and recovery budgets, TRD owns component interfaces, and BRAND_DESIGN owns screen layout and interaction hierarchy. DesignDecisions records why; UI_REFERENCE supplies the original visual palette. Other files link to these authorities rather than overriding them. In conflicts, stop the affected implementation, record the discrepancy, and reconcile these documents before proceeding. Direct subsequent user instructions supersede this baseline.
 
 Use requirement IDs, feature IDs and decision IDs in implementation tasks. Do not silently promote a deferred feature. A hardware/model/schema change creates a new run or specification revision; it never relabels an old result. "Required" means a build requirement, not a claim that it currently exists. A "target" is a proposed acceptance threshold, not measured performance.
 

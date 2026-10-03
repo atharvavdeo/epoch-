@@ -32,3 +32,7 @@ outputs/
 apps/web/node_modules/
 apps/web/dist/
 *.tsbuildinfo
+# Added by code-review-graph
+.code-review-graph/
+*.bak
+

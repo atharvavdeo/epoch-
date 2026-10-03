@@ -11,6 +11,8 @@ import math
 import re
 import statistics
 
+ADVANCE = re.compile(r"\b(for example|for instance|however|because|therefore|instead|first|second|next step|to check|to find|in contrast)\b", re.I)
+
 from pipeline.reasoning.candidates import _STOP, _content_trigrams, find_pauses
 from pipeline.reasoning.transcript_signals import EN_FILLERS, announced_replay
 
@@ -33,7 +35,9 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
 
     def put(a_ms: int, b_ms: int, key: str, v: float) -> None:
         for t in range(max(0, a_ms // 1000), min(T_s, math.ceil(b_ms / 1000))):
-            F[t][key] = max(F[t].get(key, 0.0), v)
+            overlap = max(0, min(b_ms, (t + 1) * 1000, T_ms) - max(a_ms, t * 1000))
+            width = min(1000, T_ms - t * 1000)
+            F[t][key] = max(F[t].get(key, 0.0), v * overlap / width if width else 0)
 
     segs = sorted(segments, key=lambda s: s["interval"]["start_ms"])
     info["sources"].append(f"{len(segs)} transcript segments")
@@ -47,7 +51,8 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
         n = len(cw - seen) / len(cw) if cw else 1.0
         nov.append(n)
         tri = _content_trigrams(s["text"])
-        rep.append(bool(tri) and len(tri & tri_seen) / len(tri) >= 0.5 and len(s["text"].split()) >= 6)
+        rep.append(bool(tri) and len(tri & tri_seen) / len(tri) >= 0.5 and n < 0.25
+                   and not ADVANCE.search(s["text"]) and len(s["text"].split()) >= 6)
         seen |= cw
         tri_seen |= tri
     # repetition = a run of >= 2 consecutive sentences repeating earlier wording (same rule as the repetition
@@ -92,7 +97,7 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
         if CONCRETE.search(s["text"]):
             put(s["interval"]["start_ms"], s["interval"]["end_ms"], "concrete", 1.0)
         longest = max((len(x.split()) for x in re.split(r"[.!?]+", s["text"]) if x.strip()), default=0)
-        if longest > 30:
+        if longest > 30 and re.search(r"[.!?]", s["text"]):
             put(s["interval"]["start_ms"], s["interval"]["end_ms"], "long_sentences", _clip((longest - 30) / 20))
 
     # --- pace from aligned words: local words/min over speaking time in a 20 s window vs this speaker's median
@@ -145,7 +150,8 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
     if sub:  # the hook itself is not setup: the setup clock starts once the hook has been delivered
         put(min(sub, st.get("hook_end_ms") or 0), sub, "setup_before_substance", 1.0)
     hook = st.get("hook_ms")
-    put(0, min(30_000, hook if hook is not None else 30_000), "no_hook_yet", 1.0)
+    if structure is not None:
+        put(0, min(30_000, hook if hook is not None else 30_000), "no_hook_yet", 1.0)
     for p in st.get("promises", []):
         first = p.get("first_fulfil_ms")
         if p.get("status") in ("fulfilled", "partial") and first and first > 15_000:
@@ -168,6 +174,8 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
         info["sources"].append("narrative structure (hook, substance, payoff, spans)")
     else:
         info["sources"].append("no narrative structure: hook/payoff/CTA features off")
+    info["timing_quality"] = "aligned_words" if timed else "segment_timestamps"
+    info["duration_ms"] = T_ms
     return F, info
 
 

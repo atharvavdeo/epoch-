@@ -60,12 +60,16 @@ def export_outputs(ws, source: dict) -> Path:
              f"Category: {source['project']['category']}  Language: {source['project']['declared_language']}",
              f"SHA-256: {source['sha256']}", f"Workspace: {ws.root}", "", "Stage status:"]
     stages = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual",
-              "embed", "narrative", "score", "export"]
+              "embed", "narrative", "predict", "voice", "jev", "score", "export"]
     recs = {n: ws.current(n) for n in stages}
     for n in stages:
         r = recs[n]
         lines.append(f"  {n:<12} {r.status if r else 'not run'}"
                      + (f"  ({r.data.get('elapsed_s')} s)" if r and r.data.get("elapsed_s") is not None else ""))
+
+    for stage, name in (("voice", "deepdive.json"), ("jev", "jev.json")):
+        if recs[stage] and recs[stage].path(name).exists():
+            shutil.copyfile(recs[stage].path(name), out / name)
 
     if recs["probe"]:
         p = read_json(recs["probe"].path("probe.json"))

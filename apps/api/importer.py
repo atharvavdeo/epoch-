@@ -69,6 +69,9 @@ def import_package(engine, zip_path: Path, runs_root: Path) -> dict:
                 with z.open(f.relative_path) as src, open(dst, "wb") as out:
                     shutil.copyfileobj(src, out)
             (staging / "manifest.json").write_bytes(z.read("manifest.json"))
+        # Keep exact validated bytes: rebuilding a ZIP changes its hash and would
+        # conflict with this immutable run when a downloaded package is re-imported.
+        shutil.copyfile(zip_path, staging / "_original.retention.zip")
         if final.exists():
             shutil.rmtree(final)
         staging.rename(final)

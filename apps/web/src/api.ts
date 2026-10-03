@@ -50,11 +50,11 @@ export type EvalRun = { run_id: string; project_title: string; category: string;
   issues: { total: number; by_type: Record<string, { total: number; accepted: number; dismissed: number; open: number }>;
     accepted: number; dismissed: number; open: number; supported: number; provisional: number } };
 export type Evaluation = { runs: EvalRun[]; unvalidated: string[] };
-export type Settings = { data_dir: string; cerebras: { configured: boolean; base_url: string; model: string | null };
+export type Settings = { data_dir: string; pipeline_command: string; cerebras: { configured: boolean; base_url: string; model: string | null };
   asr_threads: string; sent_to_cerebras: string; models: { role: string; model_id: string; revision: string; present: boolean }[] };
 
 type Range3 = { central: number; lower: number; upper: number };
-export type PredSecond = { t: number; retention: number; lower: number; upper: number; neutral: number; loss: number;
+export type PredSecond = { end_s?: number; duration_s?: number; hazard_per_s?: number; baseline_hazard_per_s?: number; conditional_loss?: number; transcript_risk?: number; t: number; retention: number; lower: number; upper: number; neutral: number; loss: number;
   excess_loss: number; contributions: Record<string, number>; protective: string[] };
 export type DropMoment = { start_s: number; end_s: number; excess_loss: number; retention_before: number; retention_after: number;
   reasons: { feature: string; share: number; text: string }[]; quote: string | null; issue_ids: string[] };
@@ -138,6 +138,9 @@ export const api = {
   repredict: (run: string, a: { retention_at_30s: number; retention_at_end: number; acknowledged: boolean }) =>
     call<Prediction>(`/runs/${run}/prediction`, json("POST", a)),
   artifactUrl: (run: string, art: string) => `/api/v1/runs/${run}/artifacts/${art}`,
+  outputs: (run: string) => call<{ items: { artifact_id: string; name: string; kind: string; bytes: number; stage: string; sha256: string }[] }>(`/runs/${run}/outputs`),
+  outputUrl: (run: string, art: string) => `/api/v1/runs/${run}/outputs/${art}`,
+  outputsZipUrl: (run: string) => `/api/v1/runs/${run}/outputs.zip`,
 };
 
 export const fmt = (ms: number) => {

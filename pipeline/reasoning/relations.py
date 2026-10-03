@@ -31,7 +31,7 @@ attention interest experience expectation expectations perception bias trust cur
 CONCRETE_PAT = re.compile(r"\b(\d[\d,.]*\s*(%|percent|seconds?|minutes?|hours?|days?|weeks?|years?|million|billion|"
                           r"thousand|k|m|x|times|dollars?|views?|subscribers?)?|\$\d+|for example|for instance|"
                           r"such as|imagine|picture this|let'?s say|here'?s an example|in this video|in his video|"
-                          r"like when|look at this|take (a look|this))\b", re.I)
+                          r"like when|like (?:a|an|the)\s+[a-z]+|like how|look at this|take (a look|this))\b", re.I)
 QUESTION_START = re.compile(r"^(so |and |but |now )?(how|why|what|which|who|where|when|is|are|does|do|did|can|could|"
                             r"would|should|will)\b", re.I)
 DEFINE_PAT = re.compile(r"\b(?:called|known as|referred to as|this is|i call (?:it|this)|which is|that'?s)\s+"
@@ -101,11 +101,25 @@ def question_answers(sents: list[dict], max_gap_ms: int = 600_000) -> list[dict]
             if len(shared) >= 2 or (len(q) <= 3 and len(shared) >= max(1, len(q) // 2 + 1)):
                 ans = (t, sorted(shared))
                 break
+        # Adjacent answers often paraphrase the question completely ("Yes", or a definition).
+        # Retain them as answer candidates, never semantic proof.
+        cue = None
+        for candidate in sents[i + 1:i + 4]:
+            if candidate["start_ms"] - s["end_ms"] > 10_000:
+                break
+            if candidate["text"].endswith("?"):
+                continue
+            if re.search(r"^(?:yes|no|exactly|correct|certainly|absolutely|sure)\b|\b(?:means|refers to|defined as|is (?:a|an|the)|are (?:a|an|the))\b", candidate["text"], re.I):
+                cue = candidate
+                break
+        if cue is not None and (ans is None or ans[0]["start_ms"] > cue["start_ms"]):
+            ans = (cue, [])
         rhetorical = bool(QUESTION_START.match(s["text"])) is False
         gap = (ans[0]["start_ms"] - s["end_ms"]) if ans else None
         kind = (("framing" if s["start_ms"] < 60_000 else "no_callback") if ans is None else "immediate" if gap <= 10_000 else "short" if gap <= 60_000 else "open_loop")
         out.append({"question": s, "answer": ans[0] if ans else None, "shared_words": ans[1] if ans else [],
-                    "gap_ms": gap, "kind": kind, "rhetorical_form": rhetorical})
+                    "gap_ms": gap, "kind": kind, "rhetorical_form": rhetorical,
+                    "answer_detection": "adjacent_answer_cue" if cue is not None and ans and ans[0] is cue else "lexical_overlap" if ans else None})
     return out
 
 
@@ -132,7 +146,7 @@ def abstract_stretches(conc: list[dict], min_ms: int = 40_000) -> list[dict]:
         if s["concrete_markers"] == 0 and s.get("punctuated", True):
             run.append(s)
             continue
-        if run and run[-1]["end_ms"] - run[0]["start_ms"] >= min_ms:
+        if run and run[-1]["end_ms"] - run[0]["start_ms"] >= min_ms and any(x["abstract_terms"] > 0 for x in run):
             out.append({"start_ms": run[0]["start_ms"], "end_ms": run[-1]["end_ms"], "sentences": len(run),
                         "abstract_terms": sum(x["abstract_terms"] for x in run),
                         "quote": " ".join(x["text"] for x in run)[:400]})
@@ -208,7 +222,7 @@ def analyse(segments: list[dict], chapters: list[dict] | None = None) -> dict:
     qa = question_answers(sents)
     return {
         "method": "deterministic text measurements over the transcript; no model, no audience data. An 'answer' is the "
-                  "first later sentence that returns to the question's content words - a lexical callback, not proof "
+                  "a later lexical callback or an adjacent affirmative/definition cue - an answer candidate, not proof "
                   "that the question was answered well.",
         "sentences": len(sents),
         "questions": qa,

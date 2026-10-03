@@ -85,6 +85,7 @@ function mediaDuration(f: File): Promise<number | null> {
 
 export default function NewAnalysis() {
   const qc = useQueryClient();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const nav = useNavigate();
   const [params] = useSearchParams();
   const p0 = prefs();
@@ -128,9 +129,9 @@ export default function NewAnalysis() {
     if (kind === "video" || kind === "audio") setVideoPath((v) => v || f.name);
   };
 
-  const py = ".venvs/media/Scripts/python.exe -m pipeline.cli";
+  const py = settings.data?.pipeline_command;
   const path = videoPath.trim().replace(/^"|"$/g, "");
-  const cmd = !file || !path ? null : file.kind === "audio"
+  const cmd = !file || !path || !py ? null : file.kind === "audio"
     ? `${py} transcribe "${path}" --title "${form.title.trim()}" --language ${form.declared_language === "mixed" ? "mixed" : form.declared_language}${file.duration_ms && (file.duration_ms < 300_000 || file.duration_ms > 900_000) ? " --allow-out-of-scope" : ""}`
     : `${py} analyze "${path}" --title "${form.title.trim()}" --category ${form.category} --language ${form.declared_language} --project-id ${projectId}${file.duration_ms && (file.duration_ms < 300_000 || file.duration_ms > 900_000) ? " --allow-out-of-scope" : ""}`;
   const idx = STEPS.findIndex(([k]) => k === step);

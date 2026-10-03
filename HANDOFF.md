@@ -1,5 +1,7 @@
 # HANDOFF — Epoch (PS5 Retention Predictor)
 
+**Mac continuation, 2026-10-03:** main was pulled to `320af3a`; existing planning edits were retained. Real run `5a80ca3b-788c-551f-bb5f-0a4cc2fc546b` (asset `3dfd563a2bbae40c`) is imported and served at port 8765. English Whisper/alignment, OCR, embeddings, live Cerebras, prediction, scoring and export succeeded. The website exposes 462 immutable run files through Outputs, with exact original package downloads. Visual AI remains uninspected. Local code changes are uncommitted and unpushed.
+
 Rewritten 2026-10-03 on the Windows laptop where everything was built and run. The Mac move was cancelled; macOS setup instructions are in [README §3](README.md#3-run-it-on-a-mac-apple-silicon) (untested on a Mac).
 
 **Reading order:**
@@ -144,3 +146,20 @@ See [README §2 (Windows)](README.md#2-run-it-on-windows) and [§3 (Mac)](README
 - **The site's database is global:** IDs from cached stages can collide across runs. Scenario IDs are scoped per run (X-02).
 - **Excel locks CSVs in `outputs/`;** the writer skips them with a notice.
 - **On Windows,** PaddleOCR needs `enable_mkldnn=False`, and ctranslate2 needs `setuptools<81`.
+
+
+## Analysis and review upgrade (2026-10-03)
+
+Latest local review: http://127.0.0.1:8765/runs/09a2301a-4ebe-59c8-942b-5dc118b3d2d4
+
+Text retention v2 is an exploratory, candidate-driven scenario: grouped mechanisms prevent duplicate penalties; fractional final bins and hazard integrals preserve actual duration. Text review has exact quotes, measurements, counter-explanations, preservation notes, semantic-risk candidates, and a promise ledger. Candidate acceptance is distinct from prediction. Immediate replies, framing/rhetorical questions, concrete similes and sub-five-second opening gaps suppress noisy findings. The example has four provisional text candidates, five scenario moments, and zero validated narrative findings.
+
+`voice` reads PCM waveform pitch through normalized autocorrelation and combines aligned word timing with ten-second summaries. Voice pitch/range is not an emotion or engagement measure; source audio retains RMS, LUFS, silence, peak and clipping measurements. Example: 179.8 overall words/min, 115.1Hz median detected pitch, 7.44s silence. Qwen visual inference remains Colab only.
+
+`jev` uses pinned jev-1.13.0 on the official TypeSafe endpoint, named questions sharing bounded context (12 passages per request, eight-call ceiling), strict probability/ID validation, 0.65 confidence review routing, and identical-request caching. Keys are server-side .env only. Cerebras supplies draft explanations/rewrites separately; shortening requires a verified earlier quotation and a lower word count. The example's earlier shortening opinion was rejected for unsupported duplication and routed to review. Model confidence is not editorial certainty or retention validation.
+
+Chat retrieval now fuses offline multilingual E5 and BM25 over overlapping timed passages; corpus vectors and repeated query scores are cached. One below-normal-priority ASR subprocess runs at a time within the API encoder lock; six CPU threads. Cold model startup remains about 6–9s, and lexical fallback is explicit. Actual paraphrase/chat retrieval returned hybrid_e5_bm25 and a verified transcript quotation. It is not a broad retrieval benchmark.
+
+Review defaults to Overview, with Text, Voice and Audio deep dives, cumulative assumed watch seconds, retention/baseline/sensitivity, lexical-risk, rate/pitch/variation/voicing, RMS and LUFS charts. Charts seek the player, preserve unknown gaps, and label assumptions. Text supports a selected-passage Jev question. Outputs includes the new diagnostics and readable reports; final run has 466 artifacts. API compatibility handles fractional timestamps and optional old-package diagnostics.
+
+Validation: 67 media/pipeline tests plus six API tests passed; production frontend build and package self-validation passed; live API, semantic chat, selected Jev and browser chart rendering checked. Local server stays on port 8765. User PLANNER edits are preserved. Nothing committed or pushed. Retention calibration, editorial accuracy evaluation and visual Colab analysis remain outstanding.

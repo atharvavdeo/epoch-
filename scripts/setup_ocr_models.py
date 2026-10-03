@@ -23,6 +23,9 @@ from pipeline.text_vision.stages import OCR_MODELS, paddle_env  # noqa: E402
 
 PROBES = {"en": "RETENTION TEST 42", "hi": "नमस्ते दुनिया"}
 FONTS = {"en": "C:/Windows/Fonts/arial.ttf", "hi": "C:/Windows/Fonts/Nirmala.ttc"}
+if sys.platform == "darwin":
+    FONTS = {"en": "/System/Library/Fonts/Supplemental/Arial.ttf",
+             "hi": "/System/Library/Fonts/Kohinoor.ttc"}
 
 
 def render(text: str, font: str, path: Path) -> None:

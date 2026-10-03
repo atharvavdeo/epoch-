@@ -669,6 +669,13 @@ class RetentionScenario(Record):
 
 
 class PredictionSecond(Record):
+    end_s: float | None = None
+    duration_s: float | None = None
+    hazard_per_s: float | None = None
+    baseline_hazard_per_s: float | None = None
+    conditional_loss: Unit | None = None
+    risk_groups: dict[str, Unit] = Field(default_factory=dict)
+    transcript_risk: float | None = None
     t: int = Field(ge=0)
     retention: Unit
     lower: Unit
@@ -687,8 +694,9 @@ class DropReason(Record):
 
 
 class DropMoment(Record):
+    finding_ids: list[str] = Field(default_factory=list)
     start_s: int = Field(ge=0)
-    end_s: int = Field(ge=0)
+    end_s: float = Field(ge=0)
     excess_loss: Unit
     retention_before: Unit
     retention_after: Unit
@@ -698,6 +706,7 @@ class DropMoment(Record):
 
 
 class RetentionPrediction(Record):
+    analysis: dict[str, Any] = Field(default_factory=dict)
     prediction_id: UUIDStr
     run_id: UUIDStr
     model_version: str

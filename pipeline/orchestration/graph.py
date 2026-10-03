@@ -14,7 +14,7 @@ from pipeline.media import stages as media
 from pipeline.orchestration.stage import run_stage
 
 VIDEO_STAGE_ORDER = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job",
-                     "visual", "embed", "narrative", "score", "export"]
+                     "visual", "embed", "narrative", "predict", "voice", "jev", "score", "export"]
 # OCR is opt-in (D18): PaddleOCR on Windows CPU was ~3 s/frame and destabilised the laptop.
 # Without it the text track is reported as unknown, never as clean.
 LOCAL_PRE_VISUAL = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "visual_job"]
@@ -135,8 +135,12 @@ def run_finish(ws, source: dict, *, force: set[str] | None = None) -> bool:
     ok = True
     from pipeline.predict.stage import predict_spec, predict_stage
 
+    from pipeline.media.voice import voice_spec, voice_stage
+    from pipeline.reasoning.jev import jev_spec, jev_stage
+
     steps = [embed_spec_and_fn(source), (narrative_spec(source), narrative_stage(source)),
-             (predict_spec(source), predict_stage(source)), (score_spec(), score_stage(source)),
+             (predict_spec(source), predict_stage(source)), (voice_spec(), voice_stage(source)),
+             (jev_spec(source), jev_stage(source)), (score_spec(), score_stage(source)),
              (export_spec(source), export_stage(source, ws))]
     for spec, fn in steps:
         rec = run_stage(ws, spec, fn, force=spec.name in force)

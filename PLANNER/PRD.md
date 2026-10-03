@@ -53,11 +53,11 @@ R01 US01: accept MP4/MOV/MKV for Colab decode, produce browser-compatible proxy;
 
 **P3:** operator freezes configuration → runs held-out videos → completes annotations/evaluation → prepares local demo collection → judge opens a video and follows evidence to suggested edit and comparison → report reveals model, coverage and evaluation sample size. If authentic retention data is later supplied, an optional importer verifies source/metric semantics and overlays it separately.
 
-Simple website surfaces: Project library, Review workspace, Edit plan, Evaluation/provenance. Review contains player, timestamped transcript, risk/retention tabs, ranked issue cards and (P2) a collapsible chat pane. Use a shared playhead and interval selection. Highest-priority list initially shows five findings; full list remains available. No decorative dashboard KPIs without units and definitions.
+The website uses Projects, New analysis, Review and Results as global destinations. Review contains Overview, Transcript, Shots, Retention and Edit plan views with a shared playhead and interval selection; (P2) chat opens on demand. Overview initially shows three priority findings, while Retention can rank five regions; the complete issue list remains available. Evaluation/provenance lives in Results and expandable Run details. The precise layout and disclosure rules are in [BRAND_DESIGN](BRAND_DESIGN.md). No decorative dashboard KPIs without units and definitions.
 
 ## 7. Visual design
 
-[DesignDecisions](DesignDecisions.md) owns adaptation of the supplied [UI_REFERENCE](UI_REFERENCE.md). UI/UX detailing and animation are deferred. Functional clarity, accessible contrast, Hindi rendering and correct time selection are P1 acceptance requirements.
+[BRAND_DESIGN](BRAND_DESIGN.md) owns the planned screen layouts, progressive disclosure and interaction hierarchy, adapting the supplied [UI_REFERENCE](UI_REFERENCE.md). [DesignDecisions](DesignDecisions.md) records the underlying choices. UI implementation and animation remain future build work. Functional clarity, accessible contrast, Hindi rendering and correct time selection are P1 acceptance requirements.
 
 ## 8. Data
 

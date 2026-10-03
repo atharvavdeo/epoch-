@@ -64,4 +64,7 @@ def current_env() -> str | None:
 
 
 def lock_path(env: str) -> Path:
+    mac = REPO_ROOT / "locks" / f"{env}.mac.txt"
+    if sys.platform == "darwin" and mac.exists():
+        return mac
     return REPO_ROOT / "locks" / f"{env}.txt"

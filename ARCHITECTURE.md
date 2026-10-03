@@ -102,7 +102,11 @@ Commands (all via `.venvs/media/Scripts/python.exe -m pipeline.cli`): `analyze`,
   * renames into place
   * inserts in one transaction
 * Duplicate bytes return the existing run. The same run_id with different bytes is rejected.
-* The site never computes diagnostics. It renders what the package says, and the only server-side recompute is the scenario, which requires the acknowledged assumptions.
+* The site renders packaged diagnostics. The server computes lexical transcript relations on request and can recompute predictions, scenarios and hypothetical comparisons using explicitly acknowledged assumptions.
+
+Local Mac run, 2026-10-03: export version 6 also preserves public stage diagnostics, all sampled JPEGs, extracted WAV, the original MP4, the Colab job ZIP, OCR qualification and readable CSV/subtitle/text reports. These files are listed and hashed in the manifest; they belong to the imported immutable run. The Review **Outputs** tab lists them with bounded text previews and media previews, individual downloads and a downloadable retention package. Download routes resolve manifest artifact IDs within the run directory, rather than accepting filesystem paths. Internal subprocess arguments and logs are excluded. WAV/job ZIP entries are restricted to their named diagnostic paths; nested job ZIPs are downloaded, never recursively extracted by the importer.
+
+On macOS, stage fingerprints and exported lock provenance use the installed `locks/*.mac.txt` when present. The API supplies the platform's pipeline command to New analysis. `predict` is included in CLI and API status lists.
 
 ## 9. Decision log (implementation-level)
 
@@ -150,3 +154,22 @@ Planner decisions D01–D15 are in `PLANNER/DesignDecisions.md`, which also carr
 * Script-only (no video) mode: provisional in P1, not built.
 * RapidOCR swap for D18.
 * Frames-stage hash mismatch seen once after a crash: the cache verifier rebuilt the stage correctly, but the root cause is unexplained (suspect: a partial write before the crash, then a stale `current.json`).
+
+Mac OCR export correction (2026-10-03): identical text at one timestamp may appear in several screen positions. OCR track IDs include the deterministic track index so both spatial tracks survive package validation. The real 746-track export and an integration regression with two same-text/same-time tracks passed. Imported package downloads preserve the original validated ZIP bytes to maintain run identity on re-import.
+
+
+## Analysis and review upgrade (2026-10-03)
+
+Latest local review: http://127.0.0.1:8765/runs/09a2301a-4ebe-59c8-942b-5dc118b3d2d4
+
+Text retention v2 is an exploratory, candidate-driven scenario: grouped mechanisms prevent duplicate penalties; fractional final bins and hazard integrals preserve actual duration. Text review has exact quotes, measurements, counter-explanations, preservation notes, semantic-risk candidates, and a promise ledger. Candidate acceptance is distinct from prediction. Immediate replies, framing/rhetorical questions, concrete similes and sub-five-second opening gaps suppress noisy findings. The example has four provisional text candidates, five scenario moments, and zero validated narrative findings.
+
+`voice` reads PCM waveform pitch through normalized autocorrelation and combines aligned word timing with ten-second summaries. Voice pitch/range is not an emotion or engagement measure; source audio retains RMS, LUFS, silence, peak and clipping measurements. Example: 179.8 overall words/min, 115.1Hz median detected pitch, 7.44s silence. Qwen visual inference remains Colab only.
+
+`jev` uses pinned jev-1.13.0 on the official TypeSafe endpoint, named questions sharing bounded context (12 passages per request, eight-call ceiling), strict probability/ID validation, 0.65 confidence review routing, and identical-request caching. Keys are server-side .env only. Cerebras supplies draft explanations/rewrites separately; shortening requires a verified earlier quotation and a lower word count. The example's earlier shortening opinion was rejected for unsupported duplication and routed to review. Model confidence is not editorial certainty or retention validation.
+
+Chat retrieval now fuses offline multilingual E5 and BM25 over overlapping timed passages; corpus vectors and repeated query scores are cached. One below-normal-priority ASR subprocess runs at a time within the API encoder lock; six CPU threads. Cold model startup remains about 6–9s, and lexical fallback is explicit. Actual paraphrase/chat retrieval returned hybrid_e5_bm25 and a verified transcript quotation. It is not a broad retrieval benchmark.
+
+Review defaults to Overview, with Text, Voice and Audio deep dives, cumulative assumed watch seconds, retention/baseline/sensitivity, lexical-risk, rate/pitch/variation/voicing, RMS and LUFS charts. Charts seek the player, preserve unknown gaps, and label assumptions. Text supports a selected-passage Jev question. Outputs includes the new diagnostics and readable reports; final run has 466 artifacts. API compatibility handles fractional timestamps and optional old-package diagnostics.
+
+Validation: 67 media/pipeline tests plus six API tests passed; production frontend build and package self-validation passed; live API, semantic chat, selected Jev and browser chart rendering checked. Local server stays on port 8765. User PLANNER edits are preserved. Nothing committed or pushed. Retention calibration, editorial accuracy evaluation and visual Colab analysis remain outstanding.

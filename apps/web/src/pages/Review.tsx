@@ -5,10 +5,12 @@ import { api, fmt, type Issue, type Prediction, type Scenario } from "../api";
 import { AtThisMoment } from "../components/AtThisMoment";
 import { RetentionChart, RiskChart } from "../components/Charts";
 import { ChatPanel } from "../components/Chat";
+import { DeepDive, useDeepDive } from "../components/DeepDive";
 import { Dock } from "../components/Dock";
 import { Drawer } from "../components/Drawer";
 import { FindingDetail, FindingsList, prioritise } from "../components/Issues";
 import { Player } from "../components/Player";
+import { Outputs } from "../components/Outputs";
 import { PredictionView } from "../components/Prediction";
 import { RelationsView } from "../components/Relations";
 import { ShotsView } from "../components/Shots";
@@ -23,7 +25,7 @@ function download(name: string, body: string, type: string) {
 }
 
 type Panel = { kind: "finding"; id: string } | { kind: "all" } | { kind: "chat" } | null;
-type Lower = "retention" | "transcript" | "relations" | "shots" | "method";
+type Lower = "overview" | "text" | "voice" | "audio" | "retention" | "transcript" | "relations" | "shots" | "method" | "outputs";
 const s2 = (ms: number) => fmt(ms).replace(/\.\d$/, "");
 
 function PriorityCard({ issue, onOpen }: { issue: Issue; onOpen: () => void }) {
@@ -55,10 +57,11 @@ export default function Review() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const predQ = useQuery({ queryKey: ["prediction", runId], queryFn: () => api.prediction(runId), retry: false });
   const relQ = useQuery({ queryKey: ["relations", runId], queryFn: () => api.relations(runId) });
+  const deepQ = useDeepDive(runId);
   const [userPred, setUserPred] = useState<Prediction | null>(null);
   const [userScenario, setUserScenario] = useState<Scenario | null>(null);
   const [panel, setPanel] = useState<Panel>(null);   // evidence / all findings / assistant: one at a time, closed by default
-  const [lower, setLower] = useState<Lower>("retention");
+  const [lower, setLower] = useState<Lower>("overview");
   const { focus, selectedIssue } = usePlayhead();
   const items = issues.data?.items ?? [];
   const close = useCallback(() => setPanel(null), []);
@@ -116,8 +119,8 @@ export default function Review() {
       </div>
 
       <div className="summary three">
-        {pred && <span className="item"><b>{pred.summary.apv_pct.central.toFixed(0)}%</b> estimated viewed <span className="faint">(uncalibrated)</span></span>}
-        <span className="item"><b>{ranked.filter((i) => i.severity !== "low").length}</b> findings to look at first</span>
+        {pred && <span className="item"><b>{pred.summary.apv_pct.central.toFixed(0)}%</b> scenario average viewed <span className="faint">(uncalibrated)</span></span>}
+        <span className="item"><b>{ranked.filter((i) => i.severity !== "low").length}</b> validated narrative findings</span>
         <span className="item">title payoff starts <b>{(() => {
           const p = promises.map((x) => (x.partial_interval ?? x.fulfilled_interval)?.start_ms).filter((v): v is number => v !== undefined).sort((a, b) => a - b)[0];
           return p !== undefined ? s2(p) : "not found";
@@ -137,19 +140,23 @@ export default function Review() {
       </div>
 
       <div className="section-title" style={{ marginTop: 28 }}>
-        <h2>Look at these first</h2>
+        <h2>Validated narrative findings</h2>
         <span className="sub">ranked by severity, then evidence</span>
         <button className="quiet" style={{ marginLeft: "auto" }} onClick={() => setPanel({ kind: "all" })}>See all {items.length} findings ›</button>
       </div>
       {issues.isLoading ? <p className="muted">Loading findings…</p> : top3.length ? (
         <div className="pcards">{top3.map((i) => <PriorityCard key={i.issue_id} issue={i} onOpen={() => openFinding(i.issue_id)} />)}</div>
-      ) : <p className="muted">No open findings. That is not proof the video is flawless: check “Method and data” for what was inspected.</p>}
+      ) : <p className="muted">No validated narrative findings. Provisional transcript candidates and Jev checks appear in Overview and Text. Review their evidence before editing.</p>}
 
       <div className="card" style={{ marginTop: 28 }}>
         <div className="tabs">
-          {([["retention", "Retention"], ["transcript", "Transcript"], ["relations", "Transcript relations"], ["shots", "Shots"], ["method", "Method and data"]] as const).map(([k, l]) => (
+          {([["overview", "Overview"], ["text", "Text"], ["voice", "Voice"], ["audio", "Audio"], ["retention", "Retention scenarios"], ["transcript", "Transcript"], ["relations", "Transcript relations"], ["shots", "Shots"], ["method", "Method and data"], ["outputs", "Outputs"]] as const).map(([k, l]) => (
             <button key={k} className={lower === k ? "on" : ""} aria-selected={lower === k} role="tab" onClick={() => setLower(k)}>{l}</button>))}
         </div>
+        {(["overview", "text", "voice", "audio"] as string[]).includes(lower) && <>
+          {deepQ.error && <p className="faint">{(deepQ.error as Error).message}</p>}
+          <DeepDive runId={runId} section={lower as "overview" | "text" | "voice" | "audio"} data={deepQ.data} duration={duration} pred={pred} segments={segments} relations={relQ.data} />
+        </>}
         {lower === "retention" && (pred ? <PredictionView runId={runId} pred={pred} onPred={setUserPred} />
           : <p className="muted">{predQ.isLoading ? "Loading prediction…" : "This package was built before the text retention model. Re-run finish and import the new package."}</p>)}
         {lower === "transcript" && <div className="transcript-wide">
@@ -162,6 +169,7 @@ export default function Review() {
         </div>}
         {lower === "relations" && (relQ.data ? <RelationsView rel={relQ.data} /> : <p className="muted">{relQ.error ? (relQ.error as Error).message : "Measuring the transcript…"}</p>)}
         {lower === "shots" && <ShotsView runId={runId} issues={items} segments={segments} visualPending={visualPending} />}
+        {lower === "outputs" && <Outputs runId={runId} />}
         {lower === "method" && <div className="method-tab">
           <h3>What was analysed</h3>
           <div className="kv">
@@ -169,7 +177,7 @@ export default function Review() {
             <span>{Object.entries(r.missing_stages).map(([k, v]) => `${k} — ${v}`).join(" · ") || "nothing missing"}</span>
             <span className="muted">Coverage</span>
             <span>speech {Math.round(r.coverage.filter((c) => c.modality === "speech" && c.status === "observed").reduce((t, c) => t + c.interval.end_ms - c.interval.start_ms, 0) / duration * 100)}%
-              {" · "}visuals {visualPending ? "not inspected" : "see shots"} · on-screen text not inspected</span>
+              {" · "}visuals {visualPending ? "not inspected" : "see shots"} · on-screen text {r.run.stages.some(s => s.name === "ocr" && s.status === "complete") ? "OCR sampled frames (see Outputs)" : "not inspected"}</span>
             <span className="muted">Run</span><span>{r.run.status} ({r.package_kind}) · <span className="mono">{r.run.created_at}</span></span>
             {Object.entries(r.run.provenance).filter(([k]) => ["code_revision", "precision", "scoring_version", "external_service_model"].includes(k))
               .map(([k, v]) => [<span key={k} className="muted">{k.replace(/_/g, " ")}</span>,

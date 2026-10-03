@@ -5,6 +5,7 @@ Needs fixtures/generated/sample.retention.zip (written by tests/test_pipeline_e2
 import io
 import os
 import time
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -109,3 +110,53 @@ def test_transcript_export_and_relations(client):
     assert client.get(f"/api/v1/runs/{run_id}/transcript.doc").status_code == 404
     rel = client.get(f"/api/v1/runs/{run_id}/relations").json()
     assert {"questions", "abstract_stretches", "cognitive_load", "rhythm", "summary"} <= set(rel)
+
+
+def test_outputs_preserve_run_files_and_downloadable_package(client):
+    from contracts.package import validate_package
+    run_id = _import(client, PKG.read_bytes())["committed_run_id"]
+    listing = client.get(f"/api/v1/runs/{run_id}/outputs")
+    assert listing.status_code == 200
+    files = listing.json()["items"]
+    diagnostic = next(f for f in files if f["name"] == "diagnostics/audio/audio.json")
+    downloaded = client.get(f"/api/v1/runs/{run_id}/outputs/{diagnostic['artifact_id']}")
+    assert downloaded.status_code == 200
+    assert len(downloaded.content) == diagnostic["bytes"]
+    assert "loudness" in downloaded.json()
+    assert client.get(f"/api/v1/runs/{run_id}/outputs/art_unknown").status_code == 404
+    archive = client.get(f"/api/v1/runs/{run_id}/outputs.zip")
+    assert archive.status_code == 200
+    assert archive.content == PKG.read_bytes()
+    assert _import(client, archive.content)["committed_run_id"] == run_id
+    fd, name = tempfile.mkstemp(suffix='.retention.zip')
+    os.close(fd)
+    try:
+        Path(name).write_bytes(archive.content)
+        vp = validate_package(Path(name))
+        assert vp.run.run_id == run_id
+        assert any(f.relative_path == diagnostic["name"] for f in vp.manifest.files)
+    finally:
+        Path(name).unlink()
+
+
+def test_deepdive_unknown_and_bounded_jev_selection(client, monkeypatch):
+    a = _import(client, PKG.read_bytes())
+    rid = a['committed_run_id']
+    dd = client.get(f'/api/v1/runs/{rid}/deepdive')
+    assert dd.status_code == 200 and dd.json()['voice']['status'] == 'unknown'
+    bad = client.post(f'/api/v1/runs/{rid}/jev-review', json={'question':'Rewrite?', 'selection':{'start_ms':-1,'end_ms':1000}})
+    assert bad.status_code == 422
+    import pipeline.reasoning.jev as j
+    seen=[]
+    def mock(title,chunks,question=''):
+        seen.append((chunks,question))
+        return {'status':'complete','decisions':[]}
+    monkeypatch.setattr(j,'judge_chunks',mock)
+    good=client.post(f'/api/v1/runs/{rid}/jev-review',json={'question':'Does this need clarity?','selection':{'start_ms':1000,'end_ms':4000}})
+    assert good.status_code==200 and good.json()['status']=='complete'
+    assert seen and 'Does this need clarity?' in seen[0][1] and 'Selected interval' in seen[0][1]
+
+
+def test_fractional_drop_moment_timestamp():
+    from apps.api.main import _mmss
+    assert _mmss(286361.0) == '4:46'
