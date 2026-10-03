@@ -22,6 +22,8 @@ export type Observation = { observation_id: string; interval: Interval; statemen
 export type Shot = { shot_id: string; interval: Interval; start_boundary_source: string; end_boundary_source: string;
   metrics: Record<string, number | null>; thumb: { artifact_id: string; at_ms: number; inside_shot: boolean } | null;
   observations: Observation[] };
+export type OcrTrack = { track_id: string; interval: Interval; text: string; confidence: number;
+  artifact_id: string | null; at_ms: number; quads: number[][][] };
 export type TrackValue = { risk: number | null; coverage: number; lower: number; upper: number };
 export type RiskBin = { interval: Interval; track_values: Record<string, TrackValue>; combined_lower: number;
   combined_upper: number; display_value: number | null; evidence_coverage: number; contributing_issue_ids: string[] };
@@ -134,6 +136,7 @@ export const api = {
     proxy_artifact_id: string | null; coverage: Coverage[] }>(`/runs/${id}`),
   transcript: (id: string) => call<{ segments: Segment[]; words: Word[] }>(`/runs/${id}/transcript`),
   shots: (id: string) => call<{ items: Shot[] }>(`/runs/${id}/shots`),
+  ocr: (id: string) => call<{ items: OcrTrack[] }>(`/runs/${id}/ocr`),
   timeline: (id: string) => call<{ risk: RiskBin[]; scenarios: Scenario[]; coverage: Coverage[]; chapters: Signal[];
     markers: Signal[]; structure_spans: Signal[]; promises: Promise_[]; shots: { shot_id: string; interval: Interval; metrics: Record<string, number | null> }[];
     duration_ms: number }>(`/runs/${id}/timeline`),

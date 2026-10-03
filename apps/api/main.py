@@ -371,6 +371,51 @@ def get_shots(run_id: str):
     return {"items": out}
 
 
+@app.get("/api/v1/runs/{run_id}/ocr")
+def get_ocr(run_id: str, min_confidence: float = Query(default=0.5, ge=0, le=1), min_text_len: int = Query(default=2, ge=1, le=1000)):
+    """OCR text tracks with resolved frame artifact_ids and bounding-box quads.
+
+    Returns only tracks passing confidence and min-length thresholds. Each track
+    carries the artifact_id of the first sample frame so the UI can render the
+    actual still with overlaid bounding-box quads.
+    """
+    r = _run_row(run_id)
+    d = Path(r.dir)
+    frame_lookup = {f["frame_id"]: f for f in read_jsonl(d, "frames") if "artifact_id" in f}
+    tracks = []
+    for t in read_jsonl(d, "ocr"):
+        text = (t.get("text") or "").strip()
+        if len(text) < min_text_len:
+            continue
+        conf = t.get("detector_confidence") or 0.0
+        if conf < min_confidence:
+            continue
+        artifact_id: str | None = None
+        quads = []
+        at_ms = (t.get("interval") or {}).get("start_ms", 0)
+        for s in t.get("samples", []):
+            fid = s.get("frame_id")
+            if fid and fid in frame_lookup:
+                frame = frame_lookup[fid]
+                artifact_id = frame["artifact_id"]
+                at_ms = frame["at_ms"]
+                # Samples are in source display pixels; only the selected still may be overlaid.
+                x0, y0, x1, y1 = frame.get("crop_box") or [0, 0, frame["source_width"], frame["source_height"]]
+                quads = [[[ (point[0] - x0) / (x1 - x0), (point[1] - y0) / (y1 - y0)] for point in sample["quad"]]
+                         for sample in t.get("samples", []) if sample.get("frame_id") == fid and sample.get("quad")]
+                break
+        tracks.append({
+            "track_id": t.get("track_id"),
+            "interval": t.get("interval"),
+            "text": text,
+            "confidence": round(conf, 4),
+            "artifact_id": artifact_id,
+            "quads": quads, "at_ms": at_ms,
+        })
+    tracks.sort(key=lambda t: (t["interval"] or {}).get("start_ms", 0))
+    return {"items": tracks}
+
+
 def _run_duration(r) -> int:
     with ENGINE.connect() as c:
         return c.execute(select(db.assets.c.duration_ms).where(db.assets.c.asset_id == r.asset_id)).scalar_one()

@@ -1,4 +1,6 @@
-# Architecture — Phase 1 (Diagnose)
+# Epoch architecture — integrated local app and static Cloudflare showcase
+
+**Current snapshot: 2026-10-03.** The detailed current flow/rule inventory is in [README.md](README.md). Sections below retain the implementation decision history; earlier dated validation and UI snapshots are historical. The final integrated architecture is expanded after that history. The hosted showcase is backend-free; the actual analysis API remains local.
 
 The authoritative specifications live in `PLANNER/` (PRD, TRD, Schema, RETENTION_MODEL, COLAB_RUNBOOK). This file describes what was **built**, how data moves through it, and every implementation decision that the planner didn't fix. Each decision is phrased so it can be challenged: *why X rather than Y, and what evidence would reopen it*.
 
@@ -71,7 +73,7 @@ Commands (all via `.venvs/media/Scripts/python.exe -m pipeline.cli`): `analyze`,
 ## 5. Data invariants
 
 * **Time zero** = container start (ffmpeg origin), and all intervals are half-open `[start_ms, end_ms)`. Frames are addressed by exact PTS, never `index / avg_fps`.
-* IDs are UUIDv5 over stable keys, so re-running identical inputs yields identical records and identical package bytes.
+* Record IDs derive from stable keys. Stage caching reuses matching fingerprints; package provenance/runtime metadata may change bytes across runs. Idempotent import refers to identical package bytes, not all reruns.
 * Evidence is a ledger. Issues reference `E##` evidence and never invent times. The narrative LLM picks among candidate intervals (`O#` options) that the pipeline computed, and quotes must be exact transcript substrings.
 * Missing analysis is **unknown**, not healthy. Coverage records drive the lower/upper risk bounds, and the scenario shows a central curve only when coverage is complete.
 
@@ -190,3 +192,147 @@ Scripts flow through `pipeline/script/stage.py` into embeddings, narrative, pred
 | J-03 | Script-only results retain cue/estimated timing and exclude measured media features. | Text does not provide speech rate, voice, waveform or shot evidence. |
 
 Current evidence, run IDs and limits: [final verification report](docs/FINAL_INTEGRATION_2026-10-03.md).
+
+
+## 10. Final integrated module architecture
+
+The current app separates source preparation, evidence construction, optional model judgments, deterministic analysis and immutable review. Source-level authority belongs to contracts/validators. The knowledge graph is an orientation aid; source/tests decide behavior when the graph is stale or empty.
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#DCEBFA","secondaryColor":"#E4EFE5","tertiaryColor":"#F8E7DC","primaryTextColor":"#414B5A","primaryBorderColor":"#414B5A","lineColor":"#414B5A","clusterBkg":"#E4EFE5","clusterBorder":"#414B5A","edgeLabelBackground":"#E4EFE5"},"flowchart":{"nodeSpacing":65,"rankSpacing":80,"curve":"basis"}}}%%
+flowchart TB
+    SOURCE["Persisted source + project context<br/>content hash · title · category · language"]
+    TX["Source-specific preparation<br/>Video/audio → align · Script → timed text"]
+    CONTEXT["Shared text context<br/>chunks · E5 candidates · evidence ledger"]
+    NARRATIVE["Validated Cerebras structure<br/>hook · first substance · promise ledger · spans"]
+    FEATURES["Deterministic feature builder<br/>text + optional measured audio/shots/OCR/pitch"]
+    HAZARD["Prediction v3<br/>group maxima · capped protection · signed variation"]
+    REVIEW["Findings and independent ranking<br/>quoted support · counter-explanations · preservation"]
+    JEV["TypeSafe Jev second opinion<br/>typed choices · 65% gate · replay/draft guards"]
+    EXPORT["Diagnostic score + immutable export<br/>coverage · schema/hashes · artifacts · provenance"]
+    SOURCE --> TX --> CONTEXT --> NARRATIVE
+    TX --> FEATURES
+    NARRATIVE --> FEATURES --> HAZARD
+    FEATURES --> REVIEW
+    NARRATIVE --> REVIEW
+    CONTEXT --> JEV
+    JEV -->|"Second opinion, no automatic edit"| REVIEW
+    HAZARD --> EXPORT
+    REVIEW --> EXPORT
+    classDef local fill:#E4EFE5,stroke:#414B5A,color:#414B5A;
+    classDef app fill:#DCEBFA,stroke:#414B5A,color:#414B5A;
+    classDef external fill:#F8E7DC,stroke:#414B5A,color:#414B5A;
+    class SOURCE,TX,CONTEXT,FEATURES,HAZARD,REVIEW,EXPORT local;
+    class NARRATIVE,JEV external;
+```
+
+### Implementation ownership
+
+| Module | Inputs | Outputs / authority |
+|---|---|---|
+| `apps/api/analysis.py` | Multipart/pasted source and typed project metadata | Durable job UUID, progress, process lifecycle; validates before import |
+| `pipeline/analysis_job.py` | Persisted request | Serial source-specific stages + shared finish, result package/workspace |
+| `pipeline/orchestration/workspace.py` | Source SHA and project | Project-scoped source registration and stage selection |
+| `pipeline/orchestration/stage.py` | StageSpec + upstream records | Fingerprints, journal, output digest, partial checkpoints and errors |
+| `pipeline/orchestration/settings.py` | Environment/.env and platform | Isolated interpreter, data/model root and correct lock selection |
+| `pipeline/media/probe.py`, `proxy.py` | Source container | Actual timing/rotation/stream metadata and verified playback mapping |
+| `pipeline/media/audio.py` | Extracted audio | RMS/silence/loudness/peak/clipping measurements |
+| `pipeline/media/video_scan.py`, `frames.py` | Decoded PTS frames | Cuts, shots, diagnostics and sampled evidence grid |
+| `pipeline/speech/asr_stage.py`, `align_stage.py` | Waveform and pinned snapshots | Transcript/VAD; scored word times or honest nulls |
+| `pipeline/script/parse.py`, `stage.py` | UTF-8 text/subtitle cues | Estimated/supplied segment timeline, no fake alignment or media |
+| `pipeline/reasoning/embed_stage.py` and related stages | Timed text | Multilingual passage embeddings and candidates; see graph/source for exact stage helpers |
+| `pipeline/reasoning/narrative.py` | Candidate/evidence context | Bounded validated structure and judgments, no arbitrary interval generation |
+| `pipeline/reasoning/candidates.py` | Structure + transcript + measured diagnostics | Fixed evidence IDs, affected intervals and legal edit options |
+| `pipeline/predict/features.py` | Transcript/structure + optional media | Per-second measured/heuristic feature values |
+| `pipeline/predict/model.py` | Features + anchors/shape | Survival, sensitivity, hazards, watch time and same-audience attribution |
+| `pipeline/predict/evidence.py`, `risk.py` | Features and text relations | Review candidates, evidence strength, ordinal risk and editorial rank |
+| `pipeline/media/voice.py` | Waveform and word times | Ten-second delivery windows and waveform-pitch analytics |
+| `pipeline/reasoning/jev.py` | Title, chunks, optional question | Cached typed judgments, gated review routes, guarded draft explanations |
+| `pipeline/reasoning/relations.py` | Timed transcript | Lexical answer/definition/abstraction/load/rhythm candidates |
+| `pipeline/reasoning/rag.py`, `semantic_retrieval.py` | Query + timed passages | BM25/E5 fused retrieval with explicit lexical fallback |
+| `pipeline/scoring/` | Issues + observed coverage | Older diagnostic risk/scenarios and hypothetical cut comparison |
+| `pipeline/package_export.py`, `outputs.py` | Finished valid stage records | Self-validated package and readable diagnostics |
+| `contracts/`, `apps/api/importer.py` | Export package | Hash/schema/path/reference checks; atomic immutable import |
+| `apps/api/main.py` | Run IDs and typed requests | Evidence retrieval, review state, prediction/Jev/chat/output routes |
+| `apps/web/src/store.ts` | Focus/seek selections | One player/word/chart/citation selection authority |
+| `RetentionBreakdown.tsx` | Packaged/recomputed Prediction | Dedicated survival, pressure, moment attribution, ranked windows and watch time |
+| `OcrFrames.tsx` + `/ocr` | Manifest frame references and OCR samples | Selected-still normalised quads with crop/portrait support; not boxes from other samples |
+| `apps/landing/` | Static seeds and curated media | Backend-free public showcase, input animation, demo charts and shader footer |
+
+Exact stage helpers can move between modules; the README/source map and current graph narrow their scope. A filename listed here is not evidence that an absent optional feature was run.
+
+## 11. Local job and package state transitions
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#DCEBFA","secondaryColor":"#E4EFE5","tertiaryColor":"#F8E7DC","primaryTextColor":"#414B5A","primaryBorderColor":"#414B5A","lineColor":"#414B5A","clusterBkg":"#E4EFE5","clusterBorder":"#414B5A","edgeLabelBackground":"#E4EFE5"},"flowchart":{"nodeSpacing":65,"rankSpacing":80,"curve":"basis"}}}%%
+flowchart TB
+    UPLOAD["Validate upload / paste<br/>No invalid-source project created"]
+    QUEUE["Persisted queued job<br/>Source + request + progress JSON"]
+    RUN["Running one isolated child<br/>Stages, fingerprints and bounded logs"]
+    CHECK["Export and revalidate package<br/>Must match requested project"]
+    COMMIT["Atomic import<br/>Files staged · SQLite transaction"]
+    COMPLETE["Job complete<br/>Immutable run may still have missing modalities"]
+    FAIL["Failed / interrupted<br/>No package committed; explicit retry"]
+    CANCEL["Cancelled<br/>Stop child process group; no import race"]
+    UPLOAD --> QUEUE --> RUN --> CHECK --> COMMIT --> COMPLETE
+    RUN -->|"Stage fails or service restarts"| FAIL
+    CHECK -->|"Invalid hash/schema/project"| FAIL
+    QUEUE -->|"Creator cancels"| CANCEL
+    RUN -->|"Creator cancels"| CANCEL
+    FAIL -. "Retry reuses valid stage caches" .-> QUEUE
+    classDef app fill:#DCEBFA,stroke:#414B5A,color:#414B5A;
+    classDef local fill:#E4EFE5,stroke:#414B5A,color:#414B5A;
+    classDef exception fill:#F8E7DC,stroke:#414B5A,color:#414B5A;
+    class UPLOAD,QUEUE,RUN app;
+    class CHECK,COMMIT,COMPLETE local;
+    class FAIL,CANCEL exception;
+```
+
+One API worker process is the deployment assumption. Its thread owns the queue; a lock coordinates cancellation versus commit. API restarts mark interrupted work failed and preserve sources/checkpoints. Automatically resubmitting cloud calls would hide cost and duplicate judgment history, so retry remains explicit. The package can be partial while the job itself is complete because optional coverage is a separate dimension.
+
+### Core record relationships
+
+A Project can have many source-associated Runs. A Run references its Asset, StageRecords, manifest Artifacts, transcript/word records, shots/frames/OCR, narrative signals/promises, Coverage and Issues. Evidence links the exact record/interval/quote to an Issue or observation. Review decisions are mutable local annotations attached to immutable run issue IDs. Prediction/scenario recomputation is a separate acknowledged operation; changing UI assumptions does not alter source media. Edit plans are proposed operations; new media becomes a new run rather than mutating the old package.
+
+Manifest entries name a relative path, artifact identity, bytes, SHA256, kind and producer stage. API downloads are resolved through those entries and bounded under the run root. OCR overlays choose an actual sample frame, use its timestamp, exclude all other sample quads, subtract source crop origin and normalise by crop/source extent. The frontend scales the normalised quadrilateral to the displayed image's actual aspect ratio. This matters for portrait Shorts and resized landscape stills.
+
+## 12. Public static deployment architecture
+
+The public site is intentionally a separate build from the real local React/API app. It contains no analysis endpoint, API credential, remote inference call, user upload or database. The seeded demonstration can be explored with its media samples without needing local model configuration.
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#DCEBFA","secondaryColor":"#E4EFE5","tertiaryColor":"#F8E7DC","primaryTextColor":"#414B5A","primaryBorderColor":"#414B5A","lineColor":"#414B5A","clusterBkg":"#E4EFE5","clusterBorder":"#414B5A","edgeLabelBackground":"#E4EFE5"},"flowchart":{"nodeSpacing":65,"rankSpacing":80,"curve":"basis"}}}%%
+flowchart TB
+    SOURCE["Plain HTML / CSS / JavaScript<br/>Hero · glass cards · static seeds · tour"]
+    MEDIA["Local supplied demo sources<br/>Short · trailer · educational video · audio excerpt"]
+    BUILD["build_landing.py<br/>H.264/AAC + faststart · bounded assets"]
+    DIST["Ignored dist directory<br/>Source assets + self-hosted walkthrough + media"]
+    PAGES["Cloudflare Pages direct upload<br/>epoch-retention · production branch main"]
+    BROWSER["Visitor browser<br/>Tabs · timestamp slider · pipeline animation"]
+    SHADER["Local WebGL footer<br/>Visibility-aware / reduced motion / CSS fallback"]
+    EXTERNAL["Explicit presentation assets<br/>Specified CloudFront hero video · Google Fonts"]
+    REPO["GitHub source and architecture<br/>Link to actual local application"]
+    SOURCE --> BUILD
+    MEDIA --> BUILD --> DIST --> PAGES --> BROWSER
+    BROWSER --> SHADER
+    EXTERNAL -->|"Presentation only"| BROWSER
+    BROWSER -->|"Open source documentation"| REPO
+    classDef app fill:#DCEBFA,stroke:#414B5A,color:#414B5A;
+    classDef local fill:#E4EFE5,stroke:#414B5A,color:#414B5A;
+    classDef external fill:#F8E7DC,stroke:#414B5A,color:#414B5A;
+    class SOURCE,BROWSER,SHADER app;
+    class MEDIA,BUILD,DIST local;
+    class PAGES,EXTERNAL,REPO external;
+```
+
+The design retains the requested Inter typography, sharp hero controls, painterly mountain-video background and two-pass masked accent. Explicit requested extensions add liquid-glass detail cards, a three-input animated infographic, seeded sample review and a navy/amber procedural landscape footer. No testimonial/pricing/performance claims are invented. Seeds are labelled at the shell, summary, charts, transcripts and downloadable report. Real supplied clips are playable while their illustrative analytical cards remain distinct from actual local pipeline outputs.
+
+Media is prepared outside Git into the ignored deploy folder: H.264 video, AAC audio, `yuv420p`, faststart metadata, bounded resolution and lower-priority two-thread conversion. The audio excerpt is a local 40-second WAV. The original user-provided inputs and full model caches are not pushed. HTTP headers prohibit camera/microphone/location and restrict content sources; no analytics is installed. Fonts and the exact specified hero video still require their external hosts. The footer has a gradient fallback if WebGL is unavailable and respects reduced motion/background visibility. A motion control pauses visual background motion.
+
+A direct upload is manually deployed with Wrangler from the reviewed dist directory. Committing changes to Git alone does not auto-deploy this Pages project. Use the documented build/deploy commands for later updates. The public URL and actual deployment evidence are recorded in the final verification report.
+
+## 13. Qualification boundary
+
+Both new Hindi sources have completed fresh local ASR, alignment, narrative, prediction, voice, Jev, scoring, export and import. All 67 words of the Short and 342 words of the trailer obtained scored alignment in those runs; this is alignment coverage, not measured recognition accuracy. Low-confidence Jev decisions routed to review. No broad Hindi/Hinglish WER or editorial benchmark is available. Genre-specific interpretation remains especially provisional for short promotional/trailer material.
+
+The engine's percentages remain engineering scenarios. The old coverage-bounded multimodal central curve can be unavailable even while v3 has an available-feature scenario. Qwen visual quality remains on hold; new uploads omit OCR and visual AI, and those gaps are visible. Deployment of the static seeded demonstration does not deploy the Python/model backend or qualify audience prediction. Frozen human-reference editorial evaluation, authentic retention curves, hosted authentication, distributed scheduling and automatic rendered editing remain outside the built scope.

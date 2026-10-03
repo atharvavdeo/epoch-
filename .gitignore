@@ -36,3 +36,7 @@ apps/web/dist/
 .code-review-graph/
 *.bak
 
+
+# Static showcase build and Cloudflare local state
+apps/landing/dist/
+.wrangler/

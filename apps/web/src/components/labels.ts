@@ -6,9 +6,10 @@ export const FEATURE_LABEL: Record<string, string> = {
   long_sentences: "Long sentences", open_loop: "An open question keeps interest", concrete: "A concrete example",
   long_static_shot: "One shot held a long time", dense_text_fast_speech: "Dense on-screen text while talking fast",
   flat_low_energy: "Flat, quiet delivery", loudness_drop: "Sudden drop in loudness", fresh_visual_change: "A fresh cut or visual change",
+  micro_variation: "Measured pace, loudness and cut variation",
   new_onscreen_text: "New on-screen text", energy_lift: "Livelier delivery",
 };
-export const featureLabel = (k: string) => FEATURE_LABEL[k] ?? k.replace(/_/g, " ");
+export const featureLabel = (k: string) => FEATURE_LABEL[k] ?? k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 /** Which signal a feature is measured from: the reason lanes colour by this. */
 export type Modality = "script" | "voice" | "audio" | "visual";

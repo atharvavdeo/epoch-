@@ -45,7 +45,7 @@ export function MethodAndData({ runId, pred, onPred }: { runId: string; pred: Pr
             <div key={k} className="driver"><span>{featureLabel(k)}</span>
               <span className="dbar"><span style={{ width: `${(v / maxDriver) * 100}%` }} /></span>
               <span className="num faint">{(v * 100).toFixed(1)} pts</span></div>)) : <p className="faint">Nothing moves the estimate away from the assumed average video.</p>}
-          <p className="caption">Points = how far each cause pulls this video below the assumed average video, summed over the video. Not an observed loss.</p>
+          <p className="caption">Points = cumulative same-audience excess departures attributed to each rule. This is not the end-curve difference or an observed audience loss.</p>
           <h4 className="kicker" style={{ marginTop: 20 }}>All {pred.drop_moments.length} drop moments</h4>
           <div className="dm-list">{pred.drop_moments.map((m, i) => (
             <div key={i} className="dm-mini"><button className="link num" onClick={() => focus({ start_ms: m.start_s * 1000, end_ms: m.end_s * 1000 }, null)}>{clock(m.start_s * 1000)}</button>{" "}

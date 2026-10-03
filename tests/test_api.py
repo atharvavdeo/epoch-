@@ -160,3 +160,41 @@ def test_deepdive_unknown_and_bounded_jev_selection(client, monkeypatch):
 def test_fractional_drop_moment_timestamp():
     from apps.api.main import _mmss
     assert _mmss(286361.0) == '4:46'
+
+
+def test_ocr_uses_only_selected_frame_and_normalizes_source_crop(client, monkeypatch):
+    import apps.api.main as api
+    run_id = _import(client, PKG.read_bytes())["committed_run_id"]
+    original = api.read_jsonl
+    frame = {"frame_id": "f1", "artifact_id": "art_frame", "at_ms": 1200,
+             "source_width": 1920, "source_height": 1080, "crop_box": [100, 50, 900, 450]}
+    track = {"track_id": "t1", "interval": {"start_ms": 1000, "end_ms": 3000}, "text": "A caption",
+             "detector_confidence": .9, "samples": [
+                 {"frame_id": "f1", "quad": [[100, 50], [900, 50], [900, 450], [100, 450]]},
+                 {"frame_id": "f2", "quad": [[0, 0], [10, 0], [10, 10], [0, 10]]}]}
+    monkeypatch.setattr(api, "read_jsonl", lambda root, table: [frame] if table == "frames" else [track] if table == "ocr" else original(root, table))
+    response = client.get(f"/api/v1/runs/{run_id}/ocr")
+    assert response.status_code == 200
+    row = response.json()["items"][0]
+    assert row["artifact_id"] == "art_frame" and row["at_ms"] == 1200
+    assert row["quads"] == [[[0, 0], [1, 0], [1, 1], [0, 1]]]
+    assert client.get(f"/api/v1/runs/{run_id}/ocr?min_confidence=.95").json()["items"] == []
+    assert client.get(f"/api/v1/runs/{run_id}/ocr?min_confidence=-1").status_code == 422
+    assert client.get(f"/api/v1/runs/{run_id}/ocr?min_text_len=0").status_code == 422
+
+
+def test_on_demand_jev_route_preserves_question_and_rejects_bad_selection(client, monkeypatch):
+    import pipeline.reasoning.jev as jev
+    run_id = _import(client, PKG.read_bytes())["committed_run_id"]
+    calls = []
+    def judge(title, chunks, question=""):
+        calls.append((title, chunks, question))
+        return {"status": "complete", "decisions": [], "calls": 1}
+    monkeypatch.setattr(jev, "judge_chunks", judge)
+    selected = {"start_ms": 1000, "end_ms": 5000}
+    response = client.post(f"/api/v1/runs/{run_id}/jev-review", json={"question": "Should this example stay?", "selection": selected})
+    assert response.status_code == 200 and response.json()["status"] == "complete"
+    assert len(calls) == 1 and calls[0][1]
+    assert "Should this example stay?" in calls[0][2] and '"start_ms": 1000' in calls[0][2]
+    assert client.post(f"/api/v1/runs/{run_id}/jev-review", json={"question": "Check", "selection": {"start_ms": -1, "end_ms": 5000}}).status_code == 422
+    assert len(calls) == 1

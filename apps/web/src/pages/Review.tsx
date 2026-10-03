@@ -12,11 +12,13 @@ import { FindingCard } from "../components/FindingCard";
 import { allFindings, riskBins } from "../components/findings";
 import { IconBack, IconChat, IconDownload, IconFolder, IconGrid, IconList, IconMic, IconText, IconWave } from "../components/Icons";
 import { FindingDetail } from "../components/Issues";
+import { OcrFramesView } from "../components/OcrFrames";
 import { Outputs } from "../components/Outputs";
 import { Player } from "../components/Player";
 import { ShotsView } from "../components/Shots";
 import { TranscriptPanel } from "../components/TranscriptPanel";
 import { Skeleton, SkeletonBlock } from "../components/Spinner";
+import { RetentionBreakdown } from "../components/RetentionBreakdown";
 import { EstimateBadge } from "../components/TimeChart";
 import { issueLabel, Timeline } from "../components/Timeline";
 import { usePlayhead } from "../store";
@@ -28,8 +30,8 @@ function download(name: string, body: string, type: string) {
 }
 
 type Panel = { kind: "finding"; id: string } | { kind: "all" } | { kind: "chat" } | null;
-type Tab = "overview" | "text" | "voice" | "audio" | "outputs";
-const TABS: [Tab, string, typeof IconGrid][] = [["overview", "Overview", IconGrid], ["text", "Text", IconText], ["voice", "Voice", IconMic], ["audio", "Audio", IconWave], ["outputs", "Outputs", IconFolder]];
+type Tab = "overview" | "retention" | "text" | "voice" | "audio" | "outputs";
+const TABS: [Tab, string, typeof IconGrid][] = [["overview", "Overview", IconGrid], ["retention", "Retention", IconWave], ["text", "Text", IconText], ["voice", "Voice", IconMic], ["audio", "Audio", IconWave], ["outputs", "Outputs", IconFolder]];
 const s2 = (ms: number) => fmt(ms).replace(/\.\d$/, "");
 
 export default function Review() {
@@ -47,7 +49,7 @@ export default function Review() {
   const [userScenario, setUserScenario] = useState<Scenario | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [tab, setTab] = useState<Tab>("overview");
-  const [outTab, setOutTab] = useState<"files" | "shots" | "run">("files");
+  const [outTab, setOutTab] = useState<"files" | "shots" | "ocr" | "run">("files");
   const { focus, selectedIssue } = usePlayhead();
   const items = useMemo(() => issues.data?.items ?? [], [issues.data]);
   const segments = useMemo(() => tr.data?.segments ?? [], [tr.data]);
@@ -55,6 +57,11 @@ export default function Review() {
   const findings = useMemo(() => allFindings(pred, items, segments), [pred, items, segments]);
   const bins = useMemo(() => riskBins(pred, findings), [pred, findings]);
   const close = useCallback(() => setPanel(null), []);
+
+  useEffect(() => {
+    setUserPred(null); setUserScenario(null); setPanel(null); setTab("overview");
+    usePlayhead.setState({ currentMs: 0, seekRequest: null, selectedIssue: null, selection: null });
+  }, [runId]);
 
   // land on the top finding's moment (drawers stay closed)
   useEffect(() => {
@@ -95,7 +102,7 @@ export default function Review() {
         <div className="rv-title">
           <h1>{title}</h1>
           <div className="rv-sub">
-            <span>{(r.project?.category ?? "").replace(/_/g, " ")}</span><span className="dotsep" /><span className="num">{s2(duration)}</span><span className="dotsep" />
+            <span>{(r.project?.category ?? "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase())}</span><span className="dotsep" /><span className="num">{s2(duration)}</span><span className="dotsep" />
             <select aria-label="Analysis run" className="bare" value={runId} onChange={(e) => nav(`/runs/${e.target.value}`)}>
               {(runs.length ? runs : [{ run_id: runId, created_at: r.run.created_at, package_kind: r.package_kind, status: "" }]).map((x) => (
                 <option key={x.run_id} value={x.run_id}>Run {x.run_id.slice(0, 6)} · {x.created_at.slice(0, 10)}</option>))}
@@ -110,10 +117,10 @@ export default function Review() {
       </header>
 
       <div className="kpis">
-        <div className="kpi"><b className="num">{pred ? `${pred.summary.apv_pct.central.toFixed(0)}%` : "—"}</b><span>viewed <EstimateBadge /></span></div>
-        <div className="kpi"><b className="num">{pred ? s2(pred.summary.avd_s.central * 1000) : "—"}</b><span>avg. watch time</span></div>
-        <div className="kpi"><b className="num">{issues.isLoading && predQ.isLoading ? "…" : findings.length}</b><span>findings</span></div>
-        <div className="kpi"><b className="num">{payoff !== undefined ? s2(payoff) : "—"}</b><span>title payoff starts</span></div>
+        <div className="kpi"><b className="num">{pred ? `${pred.summary.apv_pct.central.toFixed(0)}%` : "—"}</b><span>Viewed <EstimateBadge /></span></div>
+        <div className="kpi"><b className="num">{pred ? s2(pred.summary.avd_s.central * 1000) : "—"}</b><span>Average watch time</span></div>
+        <div className="kpi"><b className="num">{issues.isLoading && predQ.isLoading ? "…" : findings.length}</b><span>Findings</span></div>
+        <div className="kpi"><b className="num">{payoff !== undefined ? s2(payoff) : "—"}</b><span>Title payoff starts</span></div>
       </div>
 
       <div className="ws2">
@@ -132,21 +139,23 @@ export default function Review() {
 
       <div className="tabs-wrap">
         <div className="tabs" role="tablist" aria-label="Review sections">
-          {tabs.map(([k, l, Ico]) => <button key={k} role="tab" className={tab === k ? "on" : ""} aria-selected={tab === k} onClick={() => setTab(k)}><Ico size={17} />{l}</button>)}
+          {tabs.map(([k, l, Ico]) => <button key={k} data-tour-tab={k} role="tab" className={tab === k ? "on" : ""} aria-selected={tab === k} onClick={() => setTab(k)}><Ico size={17} />{l}</button>)}
         </div>
         {textRun && <p className="note tab-note">Voice and audio: not available for a text upload.</p>}
         <div className="tab-body" key={tab}>
-          {tab !== "outputs" && (predQ.isLoading && tab === "overview" ? <SkeletonBlock chart lines={3} /> :
+          {tab === "retention" && (predQ.isLoading ? <SkeletonBlock chart lines={3} /> : pred ? <RetentionBreakdown runId={runId} pred={pred} onPred={setUserPred} /> : <p className="note">Retention data is not available for this run.</p>)}
+          {tab !== "outputs" && tab !== "retention" && (predQ.isLoading && tab === "overview" ? <SkeletonBlock chart lines={3} /> :
             <DeepDive runId={runId} section={tab} data={deepQ.data} dataLoading={deepQ.isLoading} duration={duration} pred={pred} onPred={setUserPred}
               segments={segments} words={tr.data?.words ?? []} relations={relQ.data} tl={tl.data} issues={items} findings={findings} bins={bins}
               onTab={setTab} onEvidence={openFinding} onAll={() => setPanel({ kind: "all" })} textRun={textRun} />)}
           {tab === "outputs" && <div className="deepdive">
             <div className="segctl" role="tablist" aria-label="Outputs view">
-              {([["files", "Files"], ["shots", "Shots"], ["run", "Run details"]] as const).map(([k, l]) =>
-                <button key={k} role="tab" aria-selected={outTab === k} className={outTab === k ? "on" : ""} onClick={() => setOutTab(k)}>{l}</button>)}
+              {([["files", "Files"], ["shots", "Shots"], ["ocr", "On-screen text"], ["run", "Run details"]] as const).map(([k, l]) =>
+                <button key={k} data-tour-output={k} role="tab" aria-selected={outTab === k} className={outTab === k ? "on" : ""} onClick={() => setOutTab(k)}>{l}</button>)}
             </div>
             {outTab === "files" && <Outputs runId={runId} />}
             {outTab === "shots" && <ShotsView runId={runId} issues={items} segments={segments} visualPending={visualPending} />}
+            {outTab === "ocr" && <OcrFramesView runId={runId} />}
             {outTab === "run" && <div className="run-details">
               <div className="kv">
                 <span className="faint">Not analysed</span><span>{Object.entries(r.missing_stages).map(([k, v]) => `${k} — ${v}`).join(" · ") || "Nothing missing"}</span>
@@ -155,7 +164,7 @@ export default function Review() {
                 <span className="faint">On-screen text</span><span>{r.run.stages.some((s) => s.name === "ocr" && s.status === "complete") ? "Read from sampled frames" : "Not inspected"}</span>
                 <span className="faint">Run</span><span>{r.run.status} ({r.package_kind}) · <span className="num">{r.run.created_at.slice(0, 16).replace("T", " ")}</span></span>
                 {Object.entries(r.run.provenance).filter(([k]) => ["code_revision", "precision", "scoring_version", "external_service_model"].includes(k))
-                  .map(([k, v]) => [<span key={k} className="faint">{k.replace(/_/g, " ")}</span>, <span key={k + "v"} className="code">{typeof v === "string" ? v : JSON.stringify(v)}</span>])}
+                  .map(([k, v]) => [<span key={k} className="faint">{k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase())}</span>, <span key={k + "v"} className="code">{typeof v === "string" ? v : JSON.stringify(v)}</span>])}
                 <span className="faint">Models</span>
                 <span className="code">{((r.run.provenance.models as { role: string; model_id: string; revision: string }[] | undefined) ?? []).map((m) => `${m.role}: ${m.model_id}@${m.revision.slice(0, 8)}`).join(" · ")}</span>
                 <span className="faint">Stages</span><span>{r.run.stages.map((s) => `${s.name}: ${s.status}`).join(" · ")}</span>

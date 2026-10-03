@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Epoch — Every second has a story.</title>
+<meta name="description" content="Epoch is an evidence-grounded retention review workspace for video, audio and scripts. Explore the static demo and the open-source pipeline.">
+<meta name="theme-color" content="#0c1827">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 42 34'%3E%3Cpath fill='%23006cd2' d='M12 0h18l3 3H15zM14 6h18l3 3H17zM17 12h18l3 3H20zM3 17h18l3 3H6zM6 23h18l3 3H9zM8 28h18l3 3H11z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="vendor/driver.css">
+<link rel="stylesheet" href="tour.css">
+</head>
+<body>
+<a class="skip-link" href="#problem">Skip to content</a>
+<main>
+<section class="page" id="top" aria-label="Epoch introduction">
+  <div class="bg"><video class="bg-video" autoplay muted loop playsinline aria-hidden="true"><source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260808_075824_7c8a2ef3-826c-43ca-81a1-162429faa306.mp4" type="video/mp4"></video></div>
+  <header class="nav">
+    <nav class="nav__links" aria-label="Primary"><a href="#problem">The problem</a><a href="#pipeline">Pipeline</a><a href="#demo">Demo</a><a href="#principles">Approach</a></nav>
+    <a class="logo" href="#top" aria-label="Epoch home"><svg viewBox="0 0 42 34" aria-hidden="true"><polygon points="12,0 30,0 33.2,3.2 15.2,3.2"/><polygon points="14.6,5.6 32.6,5.6 35.8,8.8 17.8,8.8"/><polygon points="17.2,11.2 35.2,11.2 38.4,14.4 20.4,14.4"/><polygon points="3.2,16.8 21.2,16.8 24.4,20 6.4,20"/><polygon points="5.8,22.4 23.8,22.4 27,25.6 9,25.6"/><polygon points="8.4,28 26.4,28 29.6,31.2 11.6,31.2"/></svg><span>epoch</span></a>
+    <a class="btn btn--nav" href="https://github.com/atharvavdeo/epoch-" target="_blank" rel="noopener noreferrer"><span>View on GitHub</span><span class="btn__icon" aria-hidden="true">↗</span></a>
+    <button class="nav__burger" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu"><span></span><span></span><span></span></button>
+  </header>
+  <div class="mobile-menu" id="mobile-menu" hidden><nav aria-label="Mobile navigation"><a href="#problem">The problem</a><a href="#pipeline">Pipeline</a><a href="#demo">Demo</a><a href="#principles">Approach</a><a href="https://github.com/atharvavdeo/epoch-" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></div>
+  <div class="hero">
+    <div class="badge wipe" style="--d:.18s"><span class="badge__square"></span>Evidence-grounded retention review</div>
+    <h1 class="headline" aria-label="Every second has a story. Make yours worth staying for."><span class="headline__mask"><span class="headline__rise" style="--d:.26s">Every second has a story.</span></span><span class="headline__mask"><span class="headline__rise" style="--d:.4s"><span class="headline__muted">Make yours </span><span class="headline__accent" data-text="worth staying for.">worth staying for.</span></span></span></h1>
+    <div class="hero__actions"><a class="btn btn--light wipe" style="--d:.56s" href="#demo"><span>Explore the demo</span><span class="btn__icon" aria-hidden="true">↗</span></a><a class="btn btn--ghost wipe" style="--d:.66s" href="#pipeline">See how Epoch works</a></div>
+  </div>
+  <div class="lede"><p class="lede__rise" style="--d:.78s">Your next edit should start with evidence. Epoch connects your video, voice and script to the moments that deserve a closer look — and tells you why.</p><div class="hero-foot"><span>VIDEO / AUDIO / SCRIPT</span><button id="motion-toggle" type="button" aria-pressed="false">Pause background motion</button><a href="#problem" aria-label="Scroll to the problem">SCROLL TO EXPLORE ↓</a></div></div>
+</section>
+<section class="section problem" id="problem">
+  <div class="section-label"><span class="small-square"></span>01 / THE PROBLEM</div>
+  <div class="section-intro"><h2>A dip tells you where.<br><span class="soft">Evidence tells you why.</span></h2><p>Creators can see viewers leave after publishing. The hard part is deciding what to change before the next upload. Was it the setup, a repeated explanation, a quiet gap — or a useful pause?</p></div>
+  <div class="cards three">
+    <article class="glass-card"><span class="card-number">01</span><div class="mini-visual"><span class="wave-bars"></span><span class="wave-bars"></span><span class="wave-bars"></span><span class="wave-bars"></span><span class="wave-bars"></span><span class="wave-bars"></span><span class="wave-bars"></span></div><h3>Find the moment.</h3><p>A shared timeline brings transcript, measured delivery, chapters and candidate findings into one view. Every observation has somewhere to look.</p><span class="card-tail">TIMESTAMP-LINKED EVIDENCE ↗</span></article>
+    <article class="glass-card"><span class="card-number">02</span><div class="mini-visual quote-art">“<span>Does this passage<br>deliver the promise?</span>”</div><h3>Understand the mechanism.</h3><p>Inspect the opening, title payoff, pace, repetition and available media signals. See a counter-explanation alongside every reviewable concern.</p><span class="card-tail">CONTEXT BEFORE CRITIQUE ↗</span></article>
+    <article class="glass-card"><span class="card-number">03</span><div class="mini-visual decision-art"><span>KEEP</span><span class="active">REVIEW</span><span>REFINE</span></div><h3>Keep the creator in control.</h3><p>Jev adds a typed editorial second opinion. Confidence gates and deterministic validators keep suggested edits separate from your source.</p><span class="card-tail">NO AUTOMATIC EDITS ↗</span></article>
+  </div>
+</section>
+<section class="section pipeline-section" id="pipeline">
+  <div class="section-label"><span class="small-square"></span>02 / ONE EVIDENCE PIPELINE</div>
+  <div class="section-intro"><h2>Three ways in.<br><span class="soft">One way to a better review.</span></h2><p>Start with a finished video, a voice recording or an unrecorded script. Each takes its own preparation path, then joins the same grounded review system.</p></div>
+  <div class="pipeline-switch" role="tablist" aria-label="Pipeline input"><button role="tab" id="pipeline-video" aria-selected="true" aria-controls="pipeline-panel" data-pipeline="video">Video</button><button role="tab" id="pipeline-audio" aria-selected="false" aria-controls="pipeline-panel" data-pipeline="audio">Audio</button><button role="tab" id="pipeline-script" aria-selected="false" aria-controls="pipeline-panel" data-pipeline="script">Script</button></div>
+  <div class="pipeline-glass" id="pipeline-panel" role="tabpanel" aria-labelledby="pipeline-video">
+    <div class="flow" id="pipeline-flow"></div>
+    <div class="pipeline-bottom"><p id="pipeline-description"></p><span class="status-dot">ANIMATED EXPLANATION</span></div>
+  </div>
+  <div class="pipeline-details"><div><span>LOCAL FIRST</span><p>Media measurements, speech recognition and alignment happen locally in the full application.</p></div><div><span>GROUNDED REASONING</span><p>Cloud models receive bounded text context. Validators check evidence, quotes and edit restrictions.</p></div><div><span>HONEST OUTPUTS</span><p>Missing modalities stay unknown. Packages preserve coverage, model provenance and reviewable findings.</p></div></div>
+</section>
+<section class="section demo-section" id="demo">
+  <div class="section-label"><span class="small-square"></span>03 / THE REVIEW WORKSPACE</div>
+  <div class="section-intro"><h2>Follow the curve.<br><span class="soft">Then follow the evidence.</span></h2><p>Try a curated demo with playable samples, interactive retention charts and seeded findings. This hosted showcase runs entirely in your browser.</p></div>
+  <div class="demo-shell">
+    <div class="demo-top"><span class="demo-mark">E / REVIEW</span><span class="demo-badge">SEEDED DEMO · NO ANALYSIS API</span><button id="export-demo" class="text-button">Download demo report ↗</button></div>
+    <div class="demo-toolbar"><label for="sample-picker">Sample project</label><select id="sample-picker"><option value="short">Jio new device · Hindi Short</option><option value="trailer">Prahaar · Hindi trailer</option><option value="education">Ontology vs metadata · English</option><option value="audio">Voice-first · audio excerpt</option><option value="script">Before the recording · script</option></select><span id="source-tag"></span></div>
+    <div class="demo-layout"><div class="demo-media"><video id="sample-video" controls playsinline preload="metadata"></video><audio id="sample-audio" controls preload="metadata" hidden></audio><div id="sample-script" hidden></div><div class="media-foot"><span id="sample-caption"></span><a id="source-link" target="_blank" rel="noopener noreferrer">Original source ↗</a></div></div><div class="demo-summary"><span class="eyebrow">ILLUSTRATIVE SCENARIO</span><div class="demo-kpis"><div><strong id="demo-apv">—</strong><span>Estimated viewed</span></div><div><strong id="demo-avd">—</strong><span>Estimated watch time</span></div></div><p>These numbers and findings are seeded illustrations, not the video's measured audience or fresh AI analysis.</p><div class="coverage-tags"><span>Transcript example</span><span>Review candidates</span><span>Visual AI unqualified</span></div></div></div>
+    <div class="demo-tabs" role="tablist" aria-label="Demo review sections"><button role="tab" id="tab-retention" aria-controls="demo-panel" aria-selected="true" data-view="retention">Retention</button><button role="tab" id="tab-findings" aria-controls="demo-panel" aria-selected="false" data-view="findings">Findings</button><button role="tab" id="tab-transcript" aria-controls="demo-panel" aria-selected="false" data-view="transcript">Transcript</button><button role="tab" id="tab-jev" aria-controls="demo-panel" aria-selected="false" data-view="jev">Jev routing</button></div>
+    <div id="demo-panel" role="tabpanel" aria-labelledby="tab-retention"></div>
+    <div class="demo-disclosure"><span class="small-square"></span>Demo data is intentionally seeded. The open-source local app runs the real pipeline; this Cloudflare site sends no sample, upload or API request for analysis.</div>
+  </div>
+</section>
+<section class="section principles" id="principles">
+  <div class="section-label"><span class="small-square"></span>04 / BUILT TO BE EXPLAINED</div>
+  <div class="section-intro"><h2>A useful diagnosis.<br><span class="soft">An honest estimate.</span></h2><p>Our problem statement is retention diagnosis: connect possible drop-offs to understandable causes and actionable review. Confidence comes from showing the work, not hiding the assumptions.</p></div>
+  <div class="principle-grid"><article class="glass-card"><span class="card-number">01 / SCENARIOS</span><h3>No invented accuracy.</h3><p>The curve combines explicit baseline anchors and grouped rule features. Changing assumptions changes the scenario. The range is sensitivity, not a statistical confidence interval.</p></article><article class="glass-card"><span class="card-number">02 / ROUTING</span><h3>Review is a valid answer.</h3><p>Jev chooses keep, rewrite, shorten or needs review. Confidence below 65% routes to review. Announced replays are protected and shortening needs earlier evidence.</p></article><article class="glass-card"><span class="card-number">03 / TRACEABILITY</span><h3>Nothing disappears.</h3><p>Content hashes, pinned model identities and immutable packages connect the source to every run. Missing vision, OCR or word timing is disclosed where it matters.</p></article><article class="glass-card"><span class="card-number">04 / CREATOR CONTROL</span><h3>A suggestion isn't an edit.</h3><p>Plans preserve the original. Hypothetical cut comparisons report watch seconds and percentage together. Actual changes need a new source and reanalysis.</p></article></div>
+  <a class="architecture-link" href="https://github.com/atharvavdeo/epoch-#system-architecture" target="_blank" rel="noopener noreferrer"><span>Read the complete architecture, rules and implementation.</span><span>GITHUB README ↗</span></a>
+</section>
+<footer class="shader-footer"><canvas id="footer-shader" aria-hidden="true"></canvas><div class="footer-content"><span class="section-label">THE NEXT SECOND IS YOURS.</span><h2>Make the next edit<br>with a clearer picture.</h2><a class="btn btn--light" href="https://github.com/atharvavdeo/epoch-" target="_blank" rel="noopener noreferrer"><span>Explore Epoch on GitHub</span><span class="btn__icon" aria-hidden="true">↗</span></a><div class="footer-bottom"><a class="footer-wordmark" href="#top">epoch</a><p>Evidence-grounded retention review.<br>Video. Audio. Script.</p><span>STATIC SHOWCASE / 2026</span><a href="#top">BACK TO TOP ↑</a></div></div></footer>
+</main>
+<button id="start-walkthrough" type="button" aria-label="Start walkthrough of Epoch showcase">Start walkthrough</button>
+<script src="main.js" defer></script>
+<script src="vendor/driver.js.iife.js" defer></script>
+<script src="tour.js" defer></script>
+</body>
+</html>

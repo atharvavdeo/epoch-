@@ -8,6 +8,7 @@ import NewAnalysis from "./pages/NewAnalysis";
 import Plan from "./pages/Plan";
 import Review from "./pages/Review";
 import Settings from "./pages/Settings";
+import { Walkthrough } from "./components/Walkthrough";
 import { TopProgress } from "./components/Spinner";
 // One serif family throughout (bundled locally for the offline demo); Devanagari fallback for Hindi.
 import "@fontsource/source-serif-4/400.css";
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={qc}>
       <TopProgress />
       <BrowserRouter>
+        <Walkthrough />
         <Routes>
           <Route path="/" element={<Projects />} />
           <Route path="/new" element={<NewAnalysis />} />
