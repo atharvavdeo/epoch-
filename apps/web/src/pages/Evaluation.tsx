@@ -18,7 +18,7 @@ export default function Evaluation() {
   return (
     <div className="shell">
       <div className="header"><span /><div className="title"><h1>Evaluation</h1>
-        <div className="sub">What was tested, on which videos, and what is still unvalidated</div></div><span /></div>
+        </div><span /></div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="section-title"><h3>Not validated yet</h3><span className="sub">read this before trusting any number</span></div>
@@ -41,7 +41,7 @@ export default function Evaluation() {
 
       <div className="card">
         <div className="section-title"><h3>Videos analysed</h3><span className="sub">{runs.length} run(s)</span></div>
-        {q.isLoading && <p className="muted">Loading…</p>}
+        {q.isLoading && <div className="skel-block"><span className="skel" style={{ width: "80%", height: 14 }} /><span className="skel" style={{ width: "60%", height: 14 }} /></div>}
         <table className="cmp">
           <thead><tr><th>Video</th><th>Kind</th><th>Length</th><th>Coverage (speech / visual / text)</th><th>Findings</th><th>Slowest stages</th></tr></thead>
           <tbody>{runs.map((r) => {

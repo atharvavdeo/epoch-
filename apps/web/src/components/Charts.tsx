@@ -9,13 +9,13 @@ const TRACKS = ["narrative", "visual", "pacing", "text", "technical"];
 function riskColor(r: number) {
   // ordinal heuristic scale: low risk = dim, high = coral
   const a = Math.min(1, 0.15 + r * 0.85);
-  return `rgba(232, 80, 106, ${a})`;
+  return `rgba(36, 87, 245, ${a})`;
 }
 
 function Playhead({ duration, h }: { duration: number; h: number }) {
   const { currentMs } = usePlayhead();
   const x = (currentMs / duration) * W;
-  return <line x1={x} x2={x} y1={0} y2={h} stroke="#f2a93b" strokeWidth={1.5} />;
+  return <line x1={x} x2={x} y1={0} y2={h} stroke="var(--accent)" strokeWidth={1.5} />;
 }
 
 function clickSeek(e: React.MouseEvent<SVGSVGElement>, duration: number, seek: (ms: number) => void) {
@@ -34,12 +34,12 @@ export function RiskChart({ bins, duration, chapters }: { bins: RiskBin[]; durat
         onClick={(e) => clickSeek(e, duration, seek)} style={{ cursor: "pointer" }}>
         <defs>
           <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill="#26262a" /><line x1="0" y1="0" x2="0" y2="6" stroke="#55555c" strokeWidth="2" />
+            <rect width="6" height="6" fill="#f1efea" /><line x1="0" y1="0" x2="0" y2="6" stroke="#d3cec4" strokeWidth="2" />
           </pattern>
         </defs>
         {chapters.map((c) => (
           <g key={c.signal_id}>
-            <line x1={sx(c.interval.start_ms)} x2={sx(c.interval.start_ms)} y1={0} y2={h} stroke="#3a3a3f" />
+            <line x1={sx(c.interval.start_ms)} x2={sx(c.interval.start_ms)} y1={0} y2={h} stroke="var(--border)" />
             <text x={sx(c.interval.start_ms) + 3} y={11}>{String((c.value as { label?: string })?.label ?? "").slice(0, 22)}</text>
           </g>
         ))}
@@ -54,12 +54,12 @@ export function RiskChart({ bins, duration, chapters }: { bins: RiskBin[]; durat
                 const unknownH = laneH * (1 - v.coverage);
                 return (
                   <g key={b.interval.start_ms}>
-                    {v.coverage > 0 && <rect x={x} y={y + unknownH} width={w} height={laneH - unknownH} fill={v.risk ? riskColor(v.risk) : "#2f3a33"} />}
+                    {v.coverage > 0 && <rect x={x} y={y + unknownH} width={w} height={laneH - unknownH} fill={v.risk ? riskColor(v.risk) : "#eef2ff"} />}
                     {v.coverage < 1 && <rect x={x} y={y} width={w} height={unknownH} fill="url(#hatch)" />}
                   </g>
                 );
               })}
-              <text x={4} y={y + 12} style={{ fill: "#d8d4cf" }}>{t}</text>
+              <text x={4} y={y + 12} style={{ fill: "var(--ink)" }}>{t}</text>
             </g>
           );
         })}
@@ -74,7 +74,7 @@ export function RiskChart({ bins, duration, chapters }: { bins: RiskBin[]; durat
                   : <g key={b.interval.start_ms}><rect x={x} y={y} width={w} height={laneH} fill="url(#hatch)" />
                       <rect x={x} y={y + laneH * (1 - b.combined_lower)} width={w} height={laneH * b.combined_lower} fill={riskColor(b.combined_lower)} /></g>;
               })}
-              <text x={4} y={y + 12} style={{ fill: "#fff4e6" }}>combined</text>
+              <text x={4} y={y + 12} style={{ fill: "var(--ink)", fontWeight: 600 }}>combined</text>
             </g>
           );
         })()}
@@ -82,9 +82,9 @@ export function RiskChart({ bins, duration, chapters }: { bins: RiskBin[]; durat
         <text x={0} y={h - 2}>0:00</text><text x={W - 34} y={h - 2}>{fmt(duration)}</text>
       </svg>
       <div className="legend">
-        <span><span className="swatch" style={{ background: "#2f3a33" }} />inspected, no accepted issue</span>
+        <span><span className="swatch" style={{ background: "#eef2ff" }} />inspected, no accepted issue</span>
         <span><span className="swatch" style={{ background: riskColor(0.9) }} />higher heuristic risk</span>
-        <span><span className="swatch" style={{ background: "url(#hatch)", backgroundColor: "#55555c" }} />not inspected (unknown, not healthy)</span>
+        <span><span className="swatch" style={{ background: "repeating-linear-gradient(45deg,#f1efea 0 3px,#d3cec4 3px 5px)" }} />not inspected (unknown, not healthy)</span>
         <span>Risk is an ordinal heuristic (0–100), not the probability a viewer leaves.</span>
       </div>
     </div>
@@ -119,18 +119,18 @@ export function RetentionChart({ runId, scenario, duration, ack, onScenario }:
       <svg viewBox={`0 0 ${W} ${h}`} width="100%" role="img" aria-label="Estimated retention, uncalibrated scenario"
         onClick={(e) => clickSeek(e, duration, seek)} style={{ cursor: "pointer", opacity: showNumbers ? 1 : 0.55 }}>
         {[1, 0.75, 0.5, 0.25, 0].map((v) => (
-          <g key={v}><line x1={0} x2={W} y1={sy(v)} y2={sy(v)} stroke="#2a2a2e" /><text x={2} y={sy(v) - 2}>{v * 100}%</text></g>))}
-        <polygon points={band} fill="rgba(217,138,30,.22)" />
-        <polyline points={base} fill="none" stroke="#a9a5a0" strokeDasharray="5 4" />
-        {central && <polyline points={`${start} ${pts("central")}`} fill="none" stroke="#f2a93b" strokeWidth={2} />}
+          <g key={v}><line x1={0} x2={W} y1={sy(v)} y2={sy(v)} stroke="var(--border)" /><text x={2} y={sy(v) - 2}>{v * 100}%</text></g>))}
+        <polygon points={band} fill="rgba(36,87,245,.14)" />
+        <polyline points={base} fill="none" stroke="#9b978f" strokeDasharray="5 4" />
+        {central && <polyline points={`${start} ${pts("central")}`} fill="none" stroke="var(--ink)" strokeWidth={2} />}
         <Playhead duration={duration} h={h} />
-        {!showNumbers && <text x={W / 2 - 150} y={h / 2} style={{ fill: "#fff4e6", fontSize: 16 }}>PREVIEW — confirm assumptions below</text>}
+        {!showNumbers && <text x={W / 2 - 150} y={h / 2} style={{ fill: "var(--ink)", fontSize: 16 }}>PREVIEW — confirm assumptions below</text>}
       </svg>
       <div className="legend">
-        <span><span className="swatch" style={{ background: "rgba(217,138,30,.4)" }} />range from evidence coverage</span>
-        {central ? <span><span className="swatch" style={{ background: "#f2a93b" }} />scenario curve</span>
+        <span><span className="swatch" style={{ background: "rgba(36,87,245,.25)" }} />range from evidence coverage</span>
+        {central ? <span><span className="swatch" style={{ background: "var(--ink)" }} />scenario curve</span>
           : <span>No central curve: some evidence is missing, so only a range is shown.</span>}
-        <span><span className="swatch" style={{ background: "#a9a5a0" }} />assumed baseline (dashed)</span>
+        <span><span className="swatch" style={{ background: "#9b978f" }} />assumed baseline (dashed)</span>
       </div>
       <div className="card" style={{ background: "var(--bg-inset)", marginTop: 10 }}>
         <b>Assumptions</b> <span className="muted">(not typical YouTube retention; chosen only to draw an interpretable scenario)</span>
@@ -138,7 +138,7 @@ export function RetentionChart({ runId, scenario, duration, ack, onScenario }:
           <label>at 30 s <input type="number" step="0.05" min="0.05" max="1" value={a30} onChange={(e) => setA30(+e.target.value)} style={{ width: 80 }} /></label>
           <label>at end <input type="number" step="0.05" min="0.05" max="1" value={aEnd} onChange={(e) => setAEnd(+e.target.value)} style={{ width: 80 }} /></label>
           <label><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> These are assumptions</label>
-          <button className="amber" disabled={!confirm || !(aEnd > 0 && aEnd <= a30 && a30 <= 1) || mut.isPending} onClick={() => mut.mutate()}>Apply</button>
+          <button className="soft" disabled={!confirm || !(aEnd > 0 && aEnd <= a30 && a30 <= 1) || mut.isPending} onClick={() => mut.mutate()}>Apply</button>
           {mut.error && <span className="err">{(mut.error as Error).message}</span>}
         </div>
       </div>

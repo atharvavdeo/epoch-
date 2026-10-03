@@ -17,6 +17,14 @@ from pipeline.reasoning.candidates import _STOP, _content_trigrams, find_pauses
 from pipeline.reasoning.transcript_signals import EN_FILLERS, announced_replay
 
 CONCRETE = re.compile(r"\d|\b(for example|for instance|such as|let's say|imagine|like when)\b", re.I)
+# An explicit recap/replay marker makes reused wording intentional reinforcement, not padding (rule B1).
+RECAP = re.compile(r"\b(to recap|recap|in summary|to summari[sz]e|to sum (it )?up|as i (said|mentioned)|once again|"
+                   r"let me repeat|quick reminder)\b", re.I)
+
+# Rule thresholds shared with the findings (pipeline/predict/evidence.py). Engineering policies, not fitted.
+SETUP_MIN_MS = 15_000          # A1: setup after the hook counts only when longer than this
+PAYOFF_MIN_MS = 45_000         # A3: a title payoff is "delayed" only if later than this ...
+PAYOFF_MIN_REL = 0.20          # ... AND later than this share of the duration
 
 
 def _cw(text: str) -> set[str]:
@@ -28,8 +36,12 @@ def _clip(x: float) -> float:
 
 
 def build_features(T_ms: int, segments: list[dict], words: list[dict], structure: dict | None,
-                   audio: dict | None = None, vad: list[dict] | None = None) -> tuple[list[dict[str, float]], dict]:
+                   audio: dict | None = None, vad: list[dict] | None = None, *, shots: list[dict] | None = None,
+                   ocr_tracks: list[dict] | None = None, voice_windows: list[dict] | None = None
+                   ) -> tuple[list[dict[str, float]], dict]:
     T_s = max(1, math.ceil(T_ms / 1000))
+    local: list[float | None] = []
+    med = None
     F: list[dict[str, float]] = [{} for _ in range(T_s)]
     info: dict = {"sources": []}
 
@@ -52,7 +64,7 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
         nov.append(n)
         tri = _content_trigrams(s["text"])
         rep.append(bool(tri) and len(tri & tri_seen) / len(tri) >= 0.5 and n < 0.25
-                   and not ADVANCE.search(s["text"]) and len(s["text"].split()) >= 6)
+                   and not ADVANCE.search(s["text"]) and not RECAP.search(s["text"]) and len(s["text"].split()) >= 6)
         seen |= cw
         tri_seen |= tri
     # repetition = a run of >= 2 consecutive sentences repeating earlier wording (same rule as the repetition
@@ -148,13 +160,15 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
     st = structure or {}
     sub = st.get("first_substance_ms")
     if sub:  # the hook itself is not setup: the setup clock starts once the hook has been delivered
-        put(min(sub, st.get("hook_end_ms") or 0), sub, "setup_before_substance", 1.0)
+        setup_from = min(sub, st.get("hook_end_ms") or 0)
+        if sub - setup_from > SETUP_MIN_MS:  # A1: a short setup is normal; only a long preamble is a risk
+            put(setup_from, sub, "setup_before_substance", 1.0)
     hook = st.get("hook_ms")
     if structure is not None:
         put(0, min(30_000, hook if hook is not None else 30_000), "no_hook_yet", 1.0)
     for p in st.get("promises", []):
         first = p.get("first_fulfil_ms")
-        if p.get("status") in ("fulfilled", "partial") and first and first > 15_000:
+        if p.get("status") in ("fulfilled", "partial") and first and first > PAYOFF_MIN_MS and first > PAYOFF_MIN_REL * T_ms:
             for t in range(15, min(T_s, first // 1000)):
                 F[t]["payoff_pending"] = max(F[t].get("payoff_pending", 0.0), _clip((t - 15) / 60))
         elif p.get("status") in ("unaddressed", "uncertain"):
@@ -174,9 +188,204 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
         info["sources"].append("narrative structure (hook, substance, payoff, spans)")
     else:
         info["sources"].append("no narrative structure: hook/payoff/CTA features off")
+    measured_features(F, T_ms, info, shots=shots, ocr_tracks=ocr_tracks, audio=audio, vad=vad,
+                      voice_windows=voice_windows, local_wpm=local, median_wpm=med)
+    micro_variation(F, local, med, audio, shots, info)
     info["timing_quality"] = "aligned_words" if timed else "segment_timestamps"
     info["duration_ms"] = T_ms
     return F, info
+
+
+def micro_variation(F: list[dict], local_wpm, median_wpm, audio, shots, info: dict, smooth_s: int = 5) -> None:
+    """Per-second micro-variation in [-1, 1] (stored as micro_slowdown / micro_pickup) from measured moment-to-moment change (owner request: the
+    curve should not look straight). NOT random: each second averages the available components, then a 5 s moving
+    average is applied:
+      pace      (median_wpm - local_wpm) / median_wpm         slower than this speaker's norm -> +, faster -> -
+      loudness  (median_lufs - lufs) / 6 dB                     quieter than this video's norm  -> +, louder -> -
+      visuals   -0.6 within 2 s of a cut, +0.3 after 8 s with no cut (only when shots exist)
+    The model applies it with a small signed weight, so it shapes the curve without overriding the rule groups."""
+    T_s = len(F)
+    comps: list[list[float]] = [[] for _ in range(T_s)]
+    used = []
+    if local_wpm and median_wpm:
+        for t in range(min(T_s, len(local_wpm))):
+            if local_wpm[t] is not None:
+                comps[t].append(max(-1.0, min(1.0, (median_wpm - local_wpm[t]) / median_wpm)))
+        used.append("speech rate vs speaker median")
+    loud = (audio or {}).get("loudness") or {}
+    lt, lv = loud.get("short_term_t_ms") or [], loud.get("short_term_lufs") or []
+    vals = [v for v in lv if isinstance(v, (int, float))]
+    if vals:
+        med_l = statistics.median(vals)
+        for t_ms, v in zip(lt, lv):
+            t = int(t_ms // 1000) - 1
+            if isinstance(v, (int, float)) and 0 <= t < T_s:
+                comps[t].append(max(-1.0, min(1.0, (med_l - v) / 6.0)))
+        used.append("short-term loudness vs video median")
+    if shots:
+        starts = sorted(int(s.get("start_ms", s.get("interval", {}).get("start_ms", 0))) // 1000 for s in shots)
+        last = -10 ** 9
+        k = 0
+        for t in range(T_s):
+            while k < len(starts) and starts[k] <= t:
+                last = starts[k]; k += 1
+            nxt = starts[k] if k < len(starts) else 10 ** 9
+            comps[t].append(-0.6 if min(t - last, nxt - t) <= 2 else 0.3 if t - last >= 8 else 0.0)
+        used.append("cut timing")
+    raw = [sum(c) / len(c) if c else 0.0 for c in comps]
+    for t in range(T_s):
+        w = raw[max(0, t - smooth_s // 2): t + smooth_s // 2 + 1]
+        v = sum(w) / len(w) if w else 0.0
+        if v >= 0.02:  # stored as two non-negative halves (the package schema requires features >= 0)
+            F[t]["micro_slowdown"] = round(min(1.0, v), 4)
+        elif v <= -0.02:
+            F[t]["micro_pickup"] = round(min(1.0, -v), 4)
+    if used:
+        info["sources"].append("micro-variation from " + ", ".join(used))
+
+
+def _quantile(xs: list[float], q: float) -> float:
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, max(0, int(round(q * (len(xs) - 1)))))]
+
+
+def _decay(F: list[dict], key: str, start_ms: int, length_s: int = 3) -> None:
+    """Weak protective pulse: 1.0 in the second something new appears, fading over `length_s` seconds."""
+    t0 = start_ms // 1000
+    for k in range(length_s):
+        if 0 <= t0 + k < len(F):
+            F[t0 + k][key] = max(F[t0 + k].get(key, 0.0), 1.0 - k / length_s)
+
+
+def measured_features(F: list[dict], T_ms: int, info: dict, *, shots=None, ocr_tracks=None, audio=None, vad=None,
+                      voice_windows=None, local_wpm=None, median_wpm=None) -> None:
+    """Optional measured signals (visual pacing, on-screen text, audio energy). Absent data -> feature off.
+
+    Every threshold is relative to this video's own distribution (its median shot, its speaker's loudness and
+    pitch variation), so the signals describe change within the video, never a universal ideal.
+    """
+    T_s = len(F)
+    # --- visual pacing from shot cuts (video_scan shots.json: start_ms, end_ms, metrics.motion_mean)
+    if shots:
+        durs = [s["end_ms"] - s["start_ms"] for s in shots if s["end_ms"] > s["start_ms"]]
+        motions = [s.get("metrics", {}).get("motion_mean") for s in shots]
+        known = [m for m in motions if m is not None]
+        med_shot = statistics.median(durs) if durs else 0
+        low_motion = _quantile(known, 0.25) if len(known) >= 4 else None
+        thr = max(8000, 3 * med_shot)
+        long_shots = []
+        for s, m in zip(shots, motions):
+            a, b = s["start_ms"], s["end_ms"]
+            if a > 0:
+                _decay(F, "fresh_visual_change", a)
+            if b - a > thr and m is not None and low_motion is not None and m <= low_motion:
+                long_shots.append({"start_ms": a, "end_ms": b, "motion_mean": m})
+                for t in range(max(0, math.ceil((a + thr) / 1000)), min(T_s, math.ceil(b / 1000))):
+                    F[t]["long_static_shot"] = _clip(0.5 + 0.5 * (t * 1000 - a - thr) / thr)
+        info["visual_pacing"] = {"shots": len(shots), "median_shot_s": round(med_shot / 1000, 2),
+                                 "long_static_threshold_s": round(thr / 1000, 2),
+                                 "low_motion_threshold": low_motion, "long_static_shots": len(long_shots),
+                                 "long_static_list": long_shots}
+        info["sources"].append(f"{len(shots)} shots (visual pacing)")
+    else:
+        info["sources"].append("no shot data: visual pacing features off")
+
+    # --- on-screen text from OCR tracks (start_ms, end_ms, text, detector_confidence)
+    if ocr_tracks:
+        tracks = [t for t in ocr_tracks if (t.get("detector_confidence") or 0) >= 0.5 and len(t.get("text", "").strip()) >= 3]
+        last_seen: dict[str, int] = {}
+        new_n = 0
+        for tr in sorted(tracks, key=lambda x: x["start_ms"]):
+            key = " ".join(tr["text"].casefold().split())
+            # text present from the first frame (watermark, persistent overlay) or flickering back is not new
+            if tr["start_ms"] > 500 and tr["start_ms"] - last_seen.get(key, -10 ** 9) > 5000:
+                _decay(F, "new_onscreen_text", tr["start_ms"])
+                new_n += 1
+            last_seen[key] = max(last_seen.get(key, 0), tr["end_ms"])
+        dense_n = 0
+        if median_wpm and local_wpm:
+            for t in range(T_s):
+                ms = t * 1000 + 500
+                words_on = sum(len(tr["text"].split()) for tr in tracks if tr["start_ms"] <= ms < tr["end_ms"])
+                x = local_wpm[t] if t < len(local_wpm) else None
+                if words_on >= 12 and x is not None and x > 1.1 * median_wpm:
+                    F[t]["dense_text_fast_speech"] = _clip(words_on / 24)
+                    dense_n += 1
+        info["onscreen_text"] = {"tracks_used": len(tracks), "new_text_events": new_n, "dense_text_fast_speech_s": dense_n,
+                                 "dense_rule": ">=12 on-screen words while local speech > 1.1x speaker median"
+                                               + ("" if median_wpm else " (off: no word timing)")}
+        info["sources"].append(f"{len(tracks)} OCR text tracks (on-screen text)")
+    else:
+        info["sources"].append("no OCR tracks: on-screen text features off")
+
+    # --- audio energy: short-term loudness (1/s, 3 s window) relative to this speaker's own median
+    loud = (audio or {}).get("loudness") or {}
+    L: list[float | None] = [None] * T_s
+    for t_ms, v in zip(loud.get("short_term_t_ms") or [], loud.get("short_term_lufs") or []):
+        if v is not None and 0 <= t_ms // 1000 < T_s:
+            L[t_ms // 1000] = v
+    speech = [False] * T_s
+    if vad is not None:
+        for v in vad:
+            for t in range(max(0, v["start_ms"] // 1000), min(T_s, math.ceil(v["end_ms"] / 1000))):
+                speech[t] = True
+    sp_vals = [L[t] for t in range(T_s) if L[t] is not None and L[t] > -60 and (vad is None or speech[t])]
+    if len(sp_vals) >= 20:
+        l_med = statistics.median(sp_vals)
+
+        def runs(cond, min_len):
+            t = 0
+            while t < T_s:
+                u = t
+                while u < T_s and cond(u):
+                    u += 1
+                if u - t >= min_len:
+                    yield t, u
+                t = max(u, t + 1)
+
+        drop_n = lift_n = 0
+        if vad is not None:  # "speech continues" must be measured, so a drop needs VAD
+            def dropped(t):
+                prev = [L[k] for k in range(max(0, t - 10), t) if L[k] is not None and speech[k]]
+                return (speech[t] and L[t] is not None and not F[t].get("dead_air") and len(prev) >= 5
+                        and L[t] <= statistics.median(prev) - 10)
+            for a, b in runs(dropped, 3):
+                for t in range(a, b):
+                    F[t]["loudness_drop"] = 1.0
+                drop_n += 1
+        for a, b in runs(lambda t: L[t] is not None and (vad is None or speech[t]) and L[t] >= l_med + 4, 3):
+            for t in range(a, b):
+                F[t]["energy_lift"] = 1.0
+            lift_n += 1
+        flat_n = 0
+        wins = [w for w in (voice_windows or []) if w.get("pitch_std_hz") is not None and (w.get("voiced_fraction") or 0) >= 0.3]
+        if len(wins) >= 4:
+            std_med = statistics.median(w["pitch_std_hz"] for w in wins)
+            flags = []
+            for w in wins:
+                ls = [L[t] for t in range(w["start_ms"] // 1000, min(T_s, math.ceil(w["end_ms"] / 1000))) if L[t] is not None]
+                flags.append(bool(ls) and w["pitch_std_hz"] < 0.6 * std_med and statistics.fmean(ls) < l_med - 3)
+            i = 0
+            while i < len(wins):  # sustained: at least two consecutive 10 s windows
+                j = i
+                while j < len(wins) and flags[j] and (j == i or wins[j]["start_ms"] == wins[j - 1]["end_ms"]):
+                    j += 1
+                if j - i >= 2:
+                    for t in range(wins[i]["start_ms"] // 1000, min(T_s, math.ceil(wins[j - 1]["end_ms"] / 1000))):
+                        F[t]["flat_low_energy"] = 1.0
+                    flat_n += 1
+                i = max(j, i + 1)
+            info["sources"].append(f"{len(wins)} pitch windows (delivery variation)")
+        else:
+            info["sources"].append("no pitch windows: flat-delivery feature off")
+        info["audio_energy"] = {"speaker_median_lufs": round(l_med, 2), "loudness_drops": drop_n, "energy_lifts": lift_n,
+                                "flat_low_energy_stretches": flat_n,
+                                "rules": "drop: >=10 LU below trailing 10 s speech median for >=3 s with VAD speech; "
+                                         "lift: >=4 LU above speaker median for >=3 s; flat: pitch std <0.6x median and "
+                                         "loudness >3 LU below median for >=2 consecutive 10 s windows"}
+        info["sources"].append("short-term loudness (audio energy)")
+    else:
+        info["sources"].append("no short-term loudness: audio-energy features off")
 
 
 def _bisect(xs: list[int], v: int) -> int:

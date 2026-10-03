@@ -61,3 +61,15 @@ def test_shorten_requires_earlier_evidence(monkeypatch):
     out=explain_decisions(result,[{'chunk_id':'P01','start_ms':0,'text':'Metadata describes data.'}])
     assert out['decisions'][0]['decision']=='needs_review'
     assert 'suggested_rewrite' not in out['decisions'][0]
+
+
+def test_announced_replay_is_never_shortened_by_a_second_opinion():
+    from pipeline.reasoning.jev import guard_announced_replays
+    chunks = [{"chunk_id": "P10", "start_ms": 330000, "end_ms": 342000, "text": "The other elements aren't exclusive either. See if you can spot them in the hook to this video."},
+              {"chunk_id": "P11", "start_ms": 342000, "end_ms": 371000, "text": "MrBeast has solved YouTube retention, hitting the golden benchmark."},
+              {"chunk_id": "P12", "start_ms": 371000, "end_ms": 400000, "text": "Each of his intros is always no longer than 20 seconds long."}]
+    res = {"decisions": [{"chunk_id": "P11", "decision": "shorten", "raw_choice": "shorten", "quote": chunks[1]["text"]},
+                         {"chunk_id": "P12", "decision": "shorten", "raw_choice": "shorten", "quote": chunks[2]["text"]}]}
+    guard_announced_replays(res, chunks)
+    assert res["decisions"][0]["decision"] == "needs_review" and "replay" in res["decisions"][0]["reason"]
+    assert res["decisions"][1]["decision"] == "shorten"

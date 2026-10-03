@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
 import { Dock } from "../components/Dock";
+import { useNavigate } from "react-router";
+import { setIntroSeen } from "../components/Welcome";
 
 const KEY = "epoch.prefs";
 type Prefs = { creator: string; category: string; language: string; transcriptLayers: string };
@@ -17,9 +19,10 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(p)); setSaved(true); } catch { setSaved(false); } };
   const s = q.data;
+  const nav = useNavigate();
   return (
     <div className="shell">
-      <div className="header"><span /><div className="title"><h1>Settings</h1><div className="sub">Local, single-user</div></div><span /></div>
+      <div className="header"><span /><div className="title"><h1>Settings</h1></div><span /></div>
       <div className="home">
         <div className="card">
           <div className="section-title"><h3>Creator defaults</h3><span className="sub">pre-fill New analysis</span></div>
@@ -29,12 +32,13 @@ export default function Settings() {
               <option value="education">education</option><option value="tech_review">tech review</option><option value="other">other</option></select></label>
             <label>Default language<br /><select value={p.language} onChange={(e) => setP({ ...p, language: e.target.value })}>
               <option value="en">English</option><option value="hi">Hindi</option><option value="mixed">Hinglish / mixed</option></select></label>
-            <div className="actions"><button className="amber" onClick={save}>Save</button>{saved && <span className="muted">Saved in this browser.</span>}</div>
+            <div className="actions"><button className="hero" onClick={save}>Save</button>
+              <button className="quiet" onClick={() => { setIntroSeen(false); nav("/"); }}>Show intro again</button>{saved && <span className="muted">Saved in this browser.</span>}</div>
           </div>
         </div>
         <div className="card">
           <div className="section-title"><h3>Connections & storage</h3></div>
-          {!s ? <p className="muted">Loading…</p> : (
+          {!s ? <div className="skel-block"><span className="skel" style={{ width: "80%", height: 14 }} /><span className="skel" style={{ width: "60%", height: 14 }} /></div> : (
             <div className="kv" style={{ gridTemplateColumns: "170px 1fr" }}>
               <span className="muted">Local data folder</span><span className="mono">{s.data_dir}</span>
               <span className="muted">Cerebras API</span>
@@ -45,7 +49,7 @@ export default function Settings() {
               <span className="muted">ASR CPU threads</span><span>{s.asr_threads} <span className="faint">(EPOCH_ASR_THREADS in .env)</span></span>
               <span className="muted">Local models</span>
               <span>{s.models.map((m) => <div key={m.role} style={{ fontSize: 13 }}>
-                {m.present ? "✓" : "✗"} {m.role}: <span className="mono">{m.model_id}@{m.revision.slice(0, 8)}</span></div>)}</span>
+                {m.present ? "Present" : "Missing"} · {m.role}: <span className="mono">{m.model_id}@{m.revision.slice(0, 8)}</span></div>)}</span>
               <span className="muted">Visual model</span><span style={{ fontSize: 14 }}>Qwen3.5-9B, runs only on Colab via the job zip. Never on this laptop.</span>
             </div>)}
         </div>

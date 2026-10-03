@@ -78,6 +78,25 @@ STRUCTURE_SCHEMA = _obj({
                                                         "note": S})},
     "spans": {"type": "array", "items": _obj({"chunk": S, "kind": {"type": "string", "enum": SPAN_KINDS}, "quote": S, "note": S})},
 })
+def structure_schema(chunk_ids: list[str]) -> dict:
+    """STRUCTURE_SCHEMA with every paragraph-id field constrained to the real ids (strict decoding enforces it).
+    Free strings let the model put transcript text in id fields (hook.chunk, first_substance_chunk; 2026-10-03)."""
+    ID = {"type": "string", "enum": list(chunk_ids)}
+    ID0 = {"type": "string", "enum": list(chunk_ids) + [""]}
+    IDA = {"type": "array", "items": ID}
+    return _obj({
+        "title_obligations": STRUCTURE_SCHEMA["properties"]["title_obligations"],
+        "hook": _obj({"chunk": ID0, "quote": S, "kind": STRUCTURE_SCHEMA["properties"]["hook"]["properties"]["kind"]}),
+        "first_substance_chunk": ID0,
+        "chapters": {"type": "array", "items": _obj({"start_chunk": ID, "end_chunk": ID, "label": S, "role": {"type": "string", "enum": ROLES}})},
+        "promise_ledger": {"type": "array", "items": _obj({"obligation_index": {"type": "integer"}, "setup_chunks": IDA,
+                                                            "partial_chunks": IDA, "fulfilled_chunks": IDA,
+                                                            "status": {"type": "string", "enum": ["unaddressed", "partial", "fulfilled", "uncertain"]},
+                                                            "note": S})},
+        "spans": {"type": "array", "items": _obj({"chunk": ID, "kind": {"type": "string", "enum": SPAN_KINDS}, "quote": S, "note": S})},
+    })
+
+
 ADJ_SCHEMA = _obj({"decisions": {"type": "array", "items": _obj({
     "candidate": S, "verdict": {"type": "string", "enum": ["accept", "dismiss"]},
     "severity": {"type": "string", "enum": ["low", "medium", "high"]}, "evidence": SA, "quote": S,
@@ -296,7 +315,7 @@ def salvage_decisions(obj: dict | None, batch: list[tuple[str, dict]]) -> dict:
 # --------------------------------------------------------------------- stage
 
 def narrative_spec(source: dict) -> StageSpec:
-    return StageSpec(name="narrative", version="11", deps=("align", "embed", "probe", "video_scan", "audio"),
+    return StageSpec(name="narrative", version="13", deps=("align", "embed", "probe", "video_scan", "audio"),
                      optional_deps=("asr", "visual"),
                      config={"max_calls": MAX_CALLS, "per_call": PER_CALL, "char_budget": INPUT_CHAR_BUDGET,
                              "thresholds": {"intro_ms": 20000, "payoff_ms": 60000, "pause_ms": 2000, "static_shot_ms": 15000,
@@ -350,7 +369,7 @@ def narrative_stage(source: dict, llm_factory=None):
         def validate_s(o):
             quote_repairs.extend(repair_quotes(o, [c["chunk_id"] for c in chunks], shown))
             return validate_structure(o, [c["chunk_id"] for c in chunks], shown, title)
-        structure, s_errs, s_rep, s_last = call_with_repair(llm, secs, user, "structure", STRUCTURE_SCHEMA, validate_s,
+        structure, s_errs, s_rep, s_last = call_with_repair(llm, secs, user, "structure", structure_schema([c["chunk_id"] for c in chunks]), validate_s,
                                                             budget, 6000)
         dropped_spans = []
         if structure is None and s_last is not None and s_errs and all(e.startswith("spans[") for e in s_errs):
@@ -601,7 +620,18 @@ def repair_quotes(obj: dict, chunk_ids: list[str], shown: dict[str, str]) -> lis
 
     def fix(item, where):
         cid, q = item.get("chunk"), item.get("quote", "")
-        if not q.strip() or cid not in shown or norm(q) in norm(shown[cid]):
+        if cid not in shown:
+            # The model sometimes puts transcript text where the paragraph id belongs (seen 2026-10-03: the whole
+            # opening paragraph as hook.chunk). Recover the id only from an exact-enough word match; else stay invalid.
+            probe = q if q.strip() else (cid or "")
+            for cand in chunk_ids:
+                exact = snap_quote(probe, shown[cand]) if probe.strip() else None
+                if exact:
+                    fixes.append({"where": where, "from": {"chunk": (cid or "")[:80], "quote": q}, "to": {"chunk": cand, "quote": exact}})
+                    item["chunk"], item["quote"] = cand, exact
+                    return
+            return
+        if not q.strip() or norm(q) in norm(shown[cid]):
             return
         i = order[cid]
         for cand in [cid] + [chunk_ids[j] for j in (i - 1, i + 1) if 0 <= j < len(chunk_ids)]:

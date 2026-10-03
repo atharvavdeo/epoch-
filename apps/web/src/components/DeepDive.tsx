@@ -1,36 +1,279 @@
-import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { fmt, type Prediction, type Relations, type Segment } from "../api";
+import { useState, type ReactNode } from "react";
+import type { Interval, Issue, Prediction, Promise_, Relations, Segment, Signal, Word } from "../api";
 import { usePlayhead } from "../store";
-type Window = {start_ms:number;end_ms:number;wpm?:number;pitch_hz?:number;pitch_std_hz?:number;voiced_fraction?:number};
-type Decision = {interval?:{start_ms:number;end_ms:number};start_ms?:number;end_ms?:number;question?:string;answer?:string;decision?:string;reason?:string;quote?:string;rewrite?:string;confidence?:number;status?:string;explanation?:string;suggested_rewrite?:string;preserve?:string[]|string;counter_explanation?:string};
-type Data = {duration_ms:number;voice:{status:string;windows:Window[];summary?:Record<string,unknown>};audio:{status:string;rms?:{t_ms:number[];dbfs:(number|null)[]};silence?:{start_ms:number;end_ms:number}[];summary?:Record<string,unknown>;loudness?:{integrated_lufs?:number;lra_lu?:number;true_peak_dbfs?:number;short_term_t_ms?:number[];short_term_lufs?:number[]}};jev?:{status:string;reason?:string;decisions:Decision[]}};
-export function useDeepDive(id:string) {return useQuery({queryKey:["deepdive",id],queryFn:async()=>{const r=await fetch("/api/v1/runs/"+id+"/deepdive");if(!r.ok)throw new Error("Direct voice and audio diagnostics unavailable for this run.");return r.json() as Promise<Data>},retry:false});}
-const time=(ms:number)=>fmt(ms).replace(/\.\d$/,"");
-type Series={name:string;color:string;points:{t:number;v:number}[]};
-export function SignalChart({title,description,series,duration,unit,min,max}:{title:string;description:string;series:Series[];duration:number;unit:string;min?:number;max?:number}){
- const {focus,currentMs}=usePlayhead();const values=series.flatMap(s=>s.points).filter(p=>Number.isFinite(p.v));const lo=min??Math.min(0,...values.map(p=>p.v));const hi=Math.max(lo+1,max??Math.max(...values.map(p=>p.v)));const x=(t:number)=>55+t/Math.max(1,duration)*730;const y=(v:number)=>15+(hi-Math.max(lo,Math.min(hi,v)))/(hi-lo)*160;
- return <section className="metric-chart"><h4>{title}</h4><p className="faint">{description}</p>{!values.length?<p className="muted">Unknown — no measured values available.</p>:<><svg viewBox="0 0 800 210" role="img" aria-label={title+", "+unit} onClick={e=>{const r=e.currentTarget.getBoundingClientRect();const t=Math.max(0,Math.min(duration,((e.clientX-r.left)/r.width*800-55)/730*duration));focus({start_ms:Math.round(t),end_ms:Math.min(duration,Math.round(t)+5000)},null)}}>
- {[0,.25,.5,.75,1].map(f=><g key={f}><line x1={55} x2={785} y1={y(lo+(hi-lo)*f)} y2={y(lo+(hi-lo)*f)} stroke="#e5e2dc"/><text x={47} y={y(lo+(hi-lo)*f)+4} textAnchor="end">{(lo+(hi-lo)*f).toFixed(hi>20?0:2)}</text><text x={x(duration*f)} y={200} textAnchor="middle">{time(duration*f)}</text></g>)}
- {series.map(s=><path key={s.name} d={s.points.map((p,i)=>Number.isFinite(p.v)?((i===0||!Number.isFinite(s.points[i-1].v))?"M":"L")+x(p.t)+","+y(p.v):"").join(" ")} stroke={s.color} fill="none" strokeWidth={2} vectorEffect="non-scaling-stroke"/>)}
- <line x1={x(currentMs)} x2={x(currentMs)} y1={15} y2={175} stroke="#a36e14" strokeDasharray="3 3"/></svg><div className="legend">{series.map(s=><span key={s.name}><span className="swatch" style={{background:s.color}}/>{s.name}</span>)}<span className="faint">{unit} · click to seek</span></div></>}</section>;
-}
-function Summary({data}:{data?:Record<string,unknown>}) {return data?<dl className="deep-summary">{Object.entries(data).filter(([,v])=>typeof v==="string"||typeof v==="number").map(([k,v])=><div key={k}><dt>{k.replace(/_/g," ")}</dt><dd>{typeof v==="number"?v.toFixed(1):String(v)}</dd></div>)}</dl>:null;}
-export function WatchCharts({pred,duration}:{pred:Prediction;duration:number}){
- let sum=0;let previous=1;const cumulative=pred.per_second.map(p=>{const q=p as typeof p&{duration_s?:number;end_s?:number;hazard_per_s?:number};const dt=q.duration_s??Math.max(0,Math.min(duration/1000,p.t+1)-p.t);const h=q.hazard_per_s;sum+=typeof h==="number"?(h>1e-12?previous*(-Math.expm1(-h*dt))/h:previous*dt):(previous+p.retention)*.5*dt;previous=p.retention;return {t:(q.end_s??Math.min(duration/1000,p.t+1))*1000,v:sum}});return <div className="deep-grid two"><SignalChart title="Cumulative watch time per starting viewer" description="Area under the assumed retention curve. Final value is scenario average watch duration, not measured watch time." series={[{name:"Assumed watch seconds",color:"#268579",points:cumulative}]} duration={duration} unit="seconds"/><SignalChart title="Viewers remaining per 100 starts" description="Retention expressed as a count; the baseline is an assumption, not channel analytics." series={[{name:"Scenario viewers",color:"#c47b32",points:pred.per_second.map(p=>({t:Math.min(duration,(p.t+1)*1000),v:p.retention*100}))},{name:"Assumed baseline",color:"#89908b",points:pred.per_second.map(p=>({t:Math.min(duration,(p.t+1)*1000),v:p.neutral*100}))}]} duration={duration} unit="viewers/100" min={0} max={100}/></div>;
-}
-export function DeepDive({runId,section,data,duration,pred,segments,relations}:{runId:string;section:"overview"|"voice"|"audio"|"text";data?:Data;duration:number;pred?:Prediction;segments:Segment[];relations?:Relations}){
- const {focus,selection}=usePlayhead(); const [question,setQuestion]=useState("Does this passage need a rewrite to improve clarity without removing information?"); const [checked,setChecked]=useState<Decision[]|null>(null); const [checkStatus,setCheckStatus]=useState<string|null>(null); const check=useMutation({mutationFn:async()=>{const r=await fetch("/api/v1/runs/"+runId+"/jev-review",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question,selection})}); const body=await r.json();if(!r.ok)throw new Error(body.error?.message??body.detail??"Jev check failed");return body as {decisions:Decision[];status?:string;reason?:string}},onSuccess:r=>{setChecked(r.decisions);setCheckStatus((r.status??"unknown")+(r.reason?" — "+r.reason:""))}}); const voice=data?.voice;const audio=data?.audio;const words=segments.reduce((n,s)=>n+s.text.split(/\s+/).filter(Boolean).length,0);const speech=segments.reduce((n,s)=>n+s.interval.end_ms-s.interval.start_ms,0);
- const textFindings=(pred as (Prediction&{analysis?:{findings:Finding[]}})|undefined)?.analysis?.findings??[]; const actionable=(data?.jev?.decisions??[]).filter(d=>["rewrite","shorten"].includes(d.decision??"")); const display=(v:unknown)=>typeof v==="number"?v.toFixed(1):"unknown"; const voiceSeries=(key:keyof Window)=>[{name:key.replace(/_/g," "),color:"#268579",points:(voice?.windows??[]).map(w=>({t:w.start_ms,v:typeof w[key]==="number"?w[key] as number:NaN}))}];
- if(section==="overview")return <div className="deepdive"><div className="deep-heading"><div><h3>Overview</h3><p className="muted">Content, delivery and recording evidence together. Measurements describe this video; scenarios describe assumptions.</p></div><span className="pill uncal">No audience analytics attached</span></div><div className="deep-stats">{[[time(duration),"Video duration"],[time(speech),"Transcript segment coverage"],[words,"Transcript words"],[pred?time(pred.summary.avd_s.central*1000):"Unknown","Assumed average watch time"]].map(([v,k])=><div key={k}><b>{v}</b><span>{k}</span></div>)}</div><div className="deep-grid">{[["Text",textFindings.length+" provisional text candidates. "+(relations?relations.summary.questions+" questions; "+relations.summary.no_callback+" without detected callback.":"Relationships loading.")],["Voice","Speech rate "+display(voice?.summary?.overall_wpm)+" words/min; median pitch "+display(voice?.summary?.median_pitch_hz)+" Hz. Status: "+(voice?.status??"unknown")+". These describe delivery, not engagement."],["Audio",display(audio?.summary?.silence_s)+" seconds of detected silence; "+display(audio?.loudness?.integrated_lufs)+" LUFS integrated loudness; "+display(audio?.summary?.clipping_windows)+" clipped windows. Listen before choosing a correction."]].map(([k,v])=><section className="deep-card" key={k}><h4>{k}</h4><p>{v}</p></section>)}</div><h4>Review priorities across the evidence</h4><p className="faint">{actionable.length} Jev rewrite/shorten choices. These are model judgements, separate from validated findings. Review the passage and preserve its information before editing.</p><div className="rewrite-grid">{textFindings.slice(0,3).map(f=><article className="rewrite-card" key={f.finding_id}><button className="time" onClick={()=>focus({start_ms:f.start_ms,end_ms:f.end_ms},null)}>{time(f.start_ms)}–{time(f.end_ms)}</button><h4>{f.rule_id.replace(/_/g," ")}</h4><p>{f.mechanism}</p><p><b>Review action:</b> {f.suggestion}</p></article>)}{actionable.map((d,i)=><article className="rewrite-card" key={"j"+i}><button className="time" onClick={()=>focus({start_ms:d.start_ms??0,end_ms:d.end_ms??duration},null)}>{time(d.start_ms??0)}–{time(d.end_ms??duration)}</button><h4>Jev: {d.decision} · needs review</h4><p>{d.explanation??d.reason}</p></article>)}</div>{pred&&<WatchCharts pred={pred} duration={duration}/>}</div>;
- if(section==="voice")return <div className="deepdive"><h3>Voice delivery</h3><p className="muted">Direct waveform and aligned-speech measurements. Status: {voice?.status??"unknown"}. Low variation alone is not a reason to rewrite.</p><div className="deep-grid two"><SignalChart title="Speaking rate" description="Aligned words per minute in each window, including pauses. Variation may reflect emphasis or explanation." series={voiceSeries("wpm")} duration={duration} unit="words/min"/><SignalChart title="Pitch contour" description="Estimated fundamental frequency in voiced windows. Missing windows remain unknown." series={voiceSeries("pitch_hz")} duration={duration} unit="Hz"/><SignalChart title="Pitch variation" description="Within-window pitch spread. Compare against the same speaker rather than a universal ideal." series={voiceSeries("pitch_std_hz")} duration={duration} unit="Hz"/><SignalChart title="Voiced coverage" description="Fraction of candidate speech frames with valid pitch estimates; not whole-window speech coverage or a voice-quality score." series={voiceSeries("voiced_fraction")} duration={duration} unit="fraction" min={0} max={1}/></div><Summary data={voice?.summary}/></div>;
- if(section==="audio")return <div className="deepdive"><h3>Audio recording</h3><p className="muted">Direct signal measurements. Status: {audio?.status??"unknown"}. Digital level does not measure enjoyment or intelligibility.</p><SignalChart title="Audio level over time" description="RMS amplitude relative to digital full scale. Silence approaches the floor; 0 dBFS is the digital ceiling." series={[{name:"RMS level",color:"#268579",points:(audio?.rms?.t_ms??[]).map((t,i)=>({t,v:audio?.rms?.dbfs[i]??NaN}))}]} duration={duration} unit="dBFS" min={-80} max={0}/><SignalChart title="Short-term loudness" description="Perceptual loudness measured over short windows. Values are descriptive; no universal correction target is assumed." series={[{name:"Short-term loudness",color:"#7956a5",points:(audio?.loudness?.short_term_t_ms??[]).map((t,i)=>({t,v:audio?.loudness?.short_term_lufs?.[i]??NaN}))}]} duration={duration} unit="LUFS"/><Summary data={audio?.summary}/><Summary data={audio?.loudness as Record<string,unknown>|undefined}/><h4>Detected silence intervals</h4><p className="faint">Pauses may be intentional. Listen to the surrounding section before trimming.</p><div className="interval-list">{(audio?.silence??[]).map((s,i)=><button key={i} onClick={()=>focus(s,null)}>{time(s.start_ms)}–{time(s.end_ms)} · {((s.end_ms-s.start_ms)/1000).toFixed(1)} s</button>)}</div>{!audio?.silence?.length&&<p className="muted">{audio?"No silence intervals reported.":"Unknown — no direct diagnostics loaded."}</p>}</div>;
- const density=Array.from({length:Math.ceil(duration/15000)},(_,i)=>{const a=i*15000,b=Math.min(duration,a+15000);const n=segments.reduce((sum,s)=>sum+Math.max(0,Math.min(b,s.interval.end_ms)-Math.max(a,s.interval.start_ms))/Math.max(1,s.interval.end_ms-s.interval.start_ms)*s.text.split(/\s+/).length,0);return {t:a,v:n*60000/(b-a)}});
- return <div className="deepdive"><h3>Text deep dive</h3><p className="muted">Content structure and readability evidence. Independent rewrite checks are separate from retention assumptions.</p><div className="deep-grid two"><SignalChart title="Transcript density" description="Words overlapping each 15-second window, scaled to words/min. Includes pauses; differs from active-speech rate." series={[{name:"Transcript density",color:"#268579",points:density}]} duration={duration} unit="words/min"/><SignalChart title="New content terms" description="First appearances of terms in relation windows. High density is a review cue, not proof of overload." series={[{name:"New terms",color:"#7956a5",points:(relations?.cognitive_load.windows??[]).map(w=>({t:w.start_ms,v:w.new_terms}))}]} duration={duration} unit="terms/window"/></div><CandidateFindings pred={pred} duration={duration}/><h4>Independent rewrite checks · Jev</h4><div className="jev-form"><label className="field">Question for the selected passage<input value={question} onChange={e=>setQuestion(e.target.value)}/></label><p className="faint">{selection?time(selection.start_ms)+"–"+time(selection.end_ms):"No passage selected; the whole transcript will be checked in bounded chunks."}</p><button disabled={check.isPending||!question.trim()} onClick={()=>check.mutate()}>{check.isPending?"Checking…":"Ask Jev"}</button>{checkStatus&&<p className="faint">Check status: {checkStatus}</p>}{check.error&&<p className="err">{(check.error as Error).message}</p>}</div><p className="faint">Status: {data?.jev?.status??"unknown"}. {data?.jev?.reason??"A model answer is supporting evidence, not a guarantee that an edit improves retention."}</p><div className="rewrite-grid">{(checked??data?.jev?.decisions??[]).map((d,i)=>{const interval=d.interval??{start_ms:d.start_ms??0,end_ms:d.end_ms??d.start_ms??0};return <article className="rewrite-card" key={i}><div className="deep-heading"><button className="time" onClick={()=>focus(interval,null)}>{time(interval.start_ms)}–{time(interval.end_ms)}</button><span className="pill">{d.decision??d.answer??"Review"}</span></div>{d.question&&<h4>{d.question}</h4>}{d.quote&&<blockquote>{d.quote}</blockquote>}<p className="faint">{d.status??"model judgement"}{typeof d.confidence==="number"?" · selected-choice confidence "+(d.confidence*100).toFixed(0)+"%":""}</p><p><b>Why:</b> {d.explanation??d.reason??"No supported reason supplied."}</p>{d.counter_explanation&&<p><b>Alternative explanation:</b> {d.counter_explanation}</p>}{(d.suggested_rewrite??d.rewrite)&&<p><b>Draft wording — needs review:</b> {d.suggested_rewrite??d.rewrite}</p>}{d.preserve&&<p className="faint"><b>Preserve:</b> {Array.isArray(d.preserve)?d.preserve.join("; "):d.preserve}</p>}</article>})}</div>{!(checked??data?.jev?.decisions)?.length&&<p className="muted">No verified rewrite decisions available. This does not mean every passage is good.</p>}</div>;
+import { FindingCard } from "./FindingCard";
+import { GROUP_LABEL, type UBin, type UFinding } from "./findings";
+import { IconArrow, IconMic, IconText, IconWave } from "./Icons";
+import { MethodAndData } from "./Prediction";
+import { RelationsView } from "./Relations";
+import { RetentionChart, StructureChart, TranscriptRiskChart, WatchTimeChart } from "./RetentionCharts";
+import { Spinner, SkeletonBlock } from "./Spinner";
+import { clock, Legend, TimeChart } from "./TimeChart";
+import { TranscriptPanel } from "./TranscriptPanel";
+
+type Window = { start_ms: number; end_ms: number; wpm?: number; pitch_hz?: number | null; pitch_std_hz?: number | null; voiced_fraction?: number };
+type Decision = { interval?: Interval; start_ms?: number; end_ms?: number; question?: string; answer?: string; decision?: string; reason?: string; quote?: string;
+  rewrite?: string; confidence?: number; status?: string; explanation?: string; suggested_rewrite?: string; preserve?: string[] | string; counter_explanation?: string };
+export type DeepData = { duration_ms: number; voice: { status: string; windows: Window[]; summary?: Record<string, unknown> };
+  audio: { status: string; rms?: { t_ms: number[]; dbfs: (number | null)[] }; silence?: Interval[]; summary?: Record<string, unknown>;
+    loudness?: { integrated_lufs?: number; lra_lu?: number; true_peak_dbfs?: number; short_term_t_ms?: number[]; short_term_lufs?: number[] } };
+  jev?: { status: string; reason?: string; decisions: Decision[] } };
+export type TimelineData = { chapters: Signal[]; markers: Signal[]; structure_spans: Signal[]; promises: Promise_[] };
+
+export function useDeepDive(id: string) {
+  return useQuery({ queryKey: ["deepdive", id], retry: false, queryFn: async () => {
+    const r = await fetch("/api/v1/runs/" + id + "/deepdive");
+    if (!r.ok) throw new Error("Voice and audio measurements aren't available for this run.");
+    return r.json() as Promise<DeepData>;
+  } });
 }
 
-type Finding={finding_id:string;start_ms:number;end_ms:number;quote:string;mechanism:string;counter_explanation:string;suggestion:string;preserve:string[]|string;severity:string;rule_id:string;measurements?:Record<string,unknown>;earlier_quote?:string};
-function CandidateFindings({pred,duration}:{pred?:Prediction;duration:number}){
- const {focus}=usePlayhead(); const analysis=(pred as (Prediction&{analysis?:{findings:Finding[];risk_bins:{start_ms:number;score:number}[]}})|undefined)?.analysis;
- return <><SignalChart title="Transcript review cues" description="Heuristic risk cues from exact passages. These are provisional review candidates, not observed audience drop-off." series={[{name:"Transcript cue score",color:"#c47b32",points:(analysis?.risk_bins??[]).map(b=>({t:b.start_ms,v:b.score}))}]} duration={duration} unit="cue score" min={0}/><h4>Why a passage may need revision</h4><p className="faint">Check the evidence and alternative explanation before accepting an edit. Preserve examples and new information.</p><div className="rewrite-grid">{(analysis?.findings??[]).map(f=><article className="rewrite-card" key={f.finding_id}><div className="deep-heading"><button className="time" onClick={()=>focus({start_ms:f.start_ms,end_ms:f.end_ms},null)}>{time(f.start_ms)}–{time(f.end_ms)}</button><span className="pill">{f.severity} · provisional</span></div><h4>{f.rule_id.replace(/_/g," ")}</h4><blockquote>{f.quote}</blockquote>{f.earlier_quote&&<p><b>Earlier passage:</b> “{f.earlier_quote}”</p>}<Summary data={f.measurements}/><p><b>Reason:</b> {f.mechanism}</p><p><b>Alternative explanation:</b> {f.counter_explanation}</p><p><b>Suggested action:</b> {f.suggestion}</p><p className="faint"><b>Preserve:</b> {Array.isArray(f.preserve)?f.preserve.join("; "):f.preserve}</p></article>)}</div>{!analysis?.findings?.length&&<p className="muted">No text candidates reported by this prediction version.</p>}</>;
+const num = (v: unknown, d = 0) => typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : null;
+type Series = { name: string; points: { t: number; v: number }[]; blue?: boolean };
+
+/** Measured signal over time (black first series, blue second). Missing windows are hatched, never drawn as zero. */
+export function SignalChart({ title, series, duration, unit, min, max, fmtV }: {
+  title: string; series: Series[]; duration: number; unit: string; min?: number; max?: number; fmtV?: (v: number) => string;
+}) {
+  const vals = series.flatMap((s) => s.points.map((p) => p.v)).filter(Number.isFinite);
+  const lo = min ?? Math.min(...vals);
+  const hi = Math.max(lo + 1e-6, max ?? Math.max(...vals));
+  const pad = min === undefined || max === undefined ? (hi - lo) * 0.08 : 0;
+  const f = fmtV ?? ((v: number) => (Math.abs(hi - lo) < 3 ? v.toFixed(2) : Math.round(v).toString()));
+  const first = series[0]?.points ?? [];
+  const unknown: Interval[] = [];
+  first.forEach((p, i) => { if (!Number.isFinite(p.v)) unknown.push({ start_ms: p.t, end_ms: first[i + 1]?.t ?? Math.min(duration, p.t + 10000) }); });
+  const near = (pts: Series["points"], ms: number) => { let best = pts[0]; for (const p of pts) { if (p.t <= ms) best = p; else break; } return best; };
+  return (
+    <section className="panel">
+      <div className="chart-head"><h3>{title}</h3></div>
+      {!vals.length ? <p className="note">Not measured.</p> : <>
+        <TimeChart duration={duration} height={200} yMin={min ?? lo - pad} yMax={max ?? hi + pad} yFmt={f} yUnit={unit} ariaLabel={title} unknown={unknown}
+          render={(s) => series.map((se) => <path key={se.name} className={`ch-line ${se.blue ? "blue" : ""}`} d={se.points.map((p, i) => Number.isFinite(p.v)
+            ? `${i === 0 || !Number.isFinite(se.points[i - 1].v) ? "M" : "L"}${s.x(p.t)},${s.y(p.v)}` : "").join(" ")} />)}
+          tooltip={(ms) => <>{series.map((se) => { const p = near(se.points, ms); return <div key={se.name}>{se.name}: <b className="num">{p && Number.isFinite(p.v) ? `${f(p.v)} ${unit}` : "Not measured"}</b></div>; })}</>} />
+        {series.length > 1 && <Legend items={series.map((s) => ({ label: s.name, kind: "line" as const, color: s.blue ? "var(--accent)" : undefined }))} />}
+      </>}
+    </section>
+  );
+}
+
+function Stat({ v, k }: { v: ReactNode; k: string }) {
+  return <div className="stat"><b className="num">{v ?? <span className="faint">Not measured</span>}</b><span>{k}</span></div>;
+}
+
+type Props = {
+  runId: string; section: "overview" | "text" | "voice" | "audio"; data?: DeepData; dataLoading?: boolean; duration: number; pred?: Prediction;
+  onPred: (p: Prediction) => void; segments: Segment[]; words: Word[]; relations?: Relations; tl?: TimelineData; issues: Issue[];
+  findings: UFinding[]; bins: UBin[]; onTab: (t: "text" | "voice" | "audio") => void; onEvidence: (issueId: string) => void; onAll: () => void;
+  textRun?: boolean;
+};
+
+export function DeepDive(p: Props) {
+  if (p.section === "overview") return <Overview {...p} />;
+  if (p.section === "text") return <TextTab {...p} />;
+  if (p.section === "voice") return <VoiceTab {...p} />;
+  return <AudioTab {...p} />;
+}
+
+function HeadCard({ icon, label, value, unit, line, onClick }: { icon: ReactNode; label: string; value: ReactNode; unit?: string; line: string; onClick: () => void }) {
+  return <button className="head-card" onClick={onClick}>
+    <span className="head-icon">{icon}</span>
+    <span className="head-label">{label}</span>
+    <span className="head-value num">{value}{unit && <small> {unit}</small>}</span>
+    <span className="head-line">{line}</span>
+    <span className="head-go">See details <IconArrow size={16} /></span>
+  </button>;
+}
+
+function Overview({ runId, data, duration, pred, onPred, tl, relations, findings, bins, onTab, onEvidence, onAll, textRun }: Props) {
+  const voice = data?.voice, audio = data?.audio;
+  const textF = findings.filter((f) => f.source === "model");
+  const top = findings.slice(0, 3);
+  const wpm = num(voice?.summary?.overall_wpm);
+  const lufs = num(audio?.loudness?.integrated_lufs, 1);
+  const silence = num(audio?.summary?.silence_s, 0);
+  const clips = num(audio?.summary?.clipping_windows);
+  return (
+    <div className="deepdive">
+      <div className={`head-cards ${textRun ? "one" : ""}`}>
+        <HeadCard icon={<IconText />} label="Text" value={findings.length} unit={findings.length === 1 ? "finding" : "findings"}
+          line={textF[0] ? `First: ${textF[0].title.toLowerCase()} at ${clock(textF[0].start_ms)}` : findings[0] ? `First: ${findings[0].title.toLowerCase()}` : "Nothing flagged in the script"} onClick={() => onTab("text")} />
+        {!textRun && <><HeadCard icon={<IconMic />} label="Voice" value={wpm ?? "—"} unit={wpm ? "words/min" : undefined}
+          line={num(voice?.summary?.pitch_std_hz) ? `Pitch varies ±${num(voice?.summary?.pitch_std_hz)} Hz` : voice ? "Pitch not measured" : "Not measured"} onClick={() => onTab("voice")} />
+        <HeadCard icon={<IconWave />} label="Audio" value={lufs ?? "—"} unit={lufs ? "LUFS" : undefined}
+          line={audio ? `${silence ?? "0"} s silence · ${clips ?? "0"} clipped` : "Not measured"} onClick={() => onTab("audio")} /></>}
+      </div>
+
+      {pred ? <>
+        <section className="panel big"><RetentionChart pred={pred} /></section>
+        <section className="panel"><RetentionChart pred={pred} mode="drop" height={240} /></section>
+      </> : <section className="panel"><p className="note">The retention estimate needs a newer analysis package.</p></section>}
+
+      {bins.length > 0 && <section className="panel">
+        <div className="chart-head"><h3>Why — transcript risk by 5 seconds</h3></div>
+        <TranscriptRiskChart bins={bins} duration={duration} findings={findings} onBin={(b) => b.top && document.getElementById(`f-${b.top}`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
+      </section>}
+
+      <div className="grid-2">
+        {pred && <section className="panel"><WatchTimeChart pred={pred} /></section>}
+        <section className="panel"><StructureChart duration={duration} chapters={tl?.chapters ?? []} markers={tl?.markers ?? []} promises={tl?.promises ?? []}
+          spans={tl?.structure_spans ?? []} fallback={relations?.rhythm.sections} /></section>
+      </div>
+
+      <div className="section-title"><h2>Look at these first</h2>
+        {findings.length > 3 && <button className="quiet" onClick={onAll}>See all {findings.length} <IconArrow size={16} /></button>}</div>
+      {top.length ? <div className="fcards">{top.map((f, i) => <FindingCard key={f.id} f={f} n={i + 1} runId={runId} onEvidence={onEvidence} />)}</div>
+        : <p className="note">Nothing flagged in the inspected parts. Parts marked “not inspected” weren't checked.</p>}
+
+      {pred && <MethodAndData runId={runId} pred={pred} onPred={onPred} />}
+    </div>
+  );
+}
+
+function TextTab({ runId, data, duration, segments, words, relations, tl, issues, findings, bins, onEvidence }: Props) {
+  const focus = usePlayhead((s) => s.focus);
+  const selection = usePlayhead((s) => s.selection);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [group, setGroup] = useState("all");
+  const [shown, setShown] = useState(6);
+  const groups = Array.from(new Set(findings.map((f) => f.group)));
+  const list = findings.filter((f) => group === "all" || f.group === group);
+  const pickedF = findings.find((f) => f.id === picked);
+  const words_ = segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
+  const density = Array.from({ length: Math.ceil(duration / 15000) }, (_, i) => {
+    const a = i * 15000, b = Math.min(duration, a + 15000);
+    const n = segments.reduce((sum, s) => sum + Math.max(0, Math.min(b, s.interval.end_ms) - Math.max(a, s.interval.start_ms)) / Math.max(1, s.interval.end_ms - s.interval.start_ms) * s.text.split(/\s+/).length, 0);
+    return { t: a, v: (n * 60000) / Math.max(1, b - a) };
+  });
+  return (
+    <div className="deepdive">
+      <div className="stat-row">
+        <Stat v={findings.length} k="findings" />
+        <Stat v={words_.toLocaleString()} k="words" />
+        <Stat v={relations?.summary.questions ?? null} k="questions asked" />
+        <Stat v={relations ? `${Math.round(relations.summary.concrete_share * 100)}%` : null} k="sentences with an example" />
+      </div>
+
+      <section className="panel big">
+        <div className="chart-head"><h3>Transcript risk</h3></div>
+        <TranscriptRiskChart bins={bins} duration={duration} findings={findings} onBin={(b) => setPicked(b.top ?? null)} />
+        {pickedF && <div className="picked"><FindingCard f={pickedF} runId={runId} onEvidence={onEvidence} selected /></div>}
+      </section>
+
+      <div className="section-title"><h2>Findings</h2>
+        {groups.length > 1 && <div className="chips">
+          <button className={`chip ${group === "all" ? "on" : ""}`} onClick={() => setGroup("all")}>All</button>
+          {groups.map((g) => <button key={g} className={`chip ${group === g ? "on" : ""}`} onClick={() => setGroup(g)}>{GROUP_LABEL[g] ?? g}</button>)}
+        </div>}
+      </div>
+      {list.length ? <div className="fcards">{list.slice(0, shown).map((f) => <FindingCard key={f.id} f={f} runId={runId} onEvidence={onEvidence} selected={f.id === picked} />)}</div>
+        : <p className="note">Nothing flagged.</p>}
+      {list.length > shown && <div className="center"><button onClick={() => setShown(shown + 10)}>Show {Math.min(10, list.length - shown)} more</button></div>}
+
+      <div className="grid-2">
+        <SignalChart title="Words per minute" series={[{ name: "Transcript density", points: density }]} duration={duration} unit="words/min" min={0} />
+        <SignalChart title="New ideas" series={[{ name: "New terms", points: (relations?.cognitive_load.windows ?? []).map((w) => ({ t: w.start_ms, v: w.new_terms })), blue: true }]}
+          duration={duration} unit="new terms" min={0} />
+      </div>
+
+      {relations && <details className="disclose"><summary>Questions and ideas</summary><RelationsView rel={relations} /></details>}
+      <JevChecks runId={runId} data={data} selection={selection} focus={focus} duration={duration} />
+      <details className="disclose"><summary>Full transcript</summary>
+        <TranscriptPanel segments={segments} words={words} issues={issues} spans={tl?.structure_spans ?? []} markers={tl?.markers ?? []} promises={tl?.promises ?? []} />
+      </details>
+    </div>
+  );
+}
+
+function JevChecks({ runId, data, selection, focus, duration }: { runId: string; data?: DeepData; selection: Interval | null; focus: (iv: Interval, id?: string | null) => void; duration: number }) {
+  const [question, setQuestion] = useState("Does this passage need a rewrite to be clearer without losing information?");
+  const [checked, setChecked] = useState<Decision[] | null>(null);
+  const check = useMutation({
+    mutationFn: async () => {
+      const r = await fetch("/api/v1/runs/" + runId + "/jev-review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, selection }) });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error?.message ?? body.detail ?? "The check failed");
+      return body as { decisions: Decision[]; status?: string; reason?: string };
+    },
+    onSuccess: (r) => setChecked(r.decisions),
+  });
+  const decisions = checked ?? data?.jev?.decisions ?? [];
+  return (
+    <details className="disclose">
+      <summary>Second opinion on a passage</summary>
+      <div className="jev-form">
+        <label className="field">Question<input value={question} onChange={(e) => setQuestion(e.target.value)} /></label>
+        <span className="faint">{selection ? `${clock(selection.start_ms)}–${clock(selection.end_ms)}` : "Whole transcript"}</span>
+        <button className="soft" disabled={check.isPending || !question.trim()} onClick={() => check.mutate()}>{check.isPending && <Spinner />}Ask</button>
+      </div>
+      {check.error && <p className="err">{(check.error as Error).message}</p>}
+      <div className="fcards">{decisions.map((d, i) => {
+        const iv = d.interval ?? { start_ms: d.start_ms ?? 0, end_ms: d.end_ms ?? d.start_ms ?? duration };
+        return <article className="fcard low" key={i}>
+          <header className="fcard-head"><div className="fcard-title"><h4>{d.decision ? d.decision.replace(/^\w/, (c) => c.toUpperCase()) : d.answer ?? "Review"}</h4>
+            <div className="fcard-meta">Model opinion — needs your review</div></div>
+            <button className="time" onClick={() => focus(iv, null)}>{clock(iv.start_ms)}–{clock(iv.end_ms)}</button></header>
+          <dl className="fcard-body">
+            {d.quote && <div><dt>What happens</dt><dd><blockquote>“{d.quote}”</blockquote></dd></div>}
+            <div><dt>Why</dt><dd>{d.explanation ?? d.reason ?? "No reason given."}</dd></div>
+            {(d.suggested_rewrite ?? d.rewrite) && <div><dt>Draft wording</dt><dd>{d.suggested_rewrite ?? d.rewrite}</dd></div>}
+            {d.preserve && <div className="keep"><dt>Keep this</dt><dd>{Array.isArray(d.preserve) ? d.preserve.join("; ") : d.preserve}</dd></div>}
+          </dl>
+          {d.counter_explanation && <details className="fcard-ev"><summary>Alternative explanation</summary><div className="fcard-ev-body"><p>{d.counter_explanation}</p></div></details>}
+        </article>;
+      })}</div>
+      {!decisions.length && <p className="note">No second-opinion checks yet.</p>}
+    </details>
+  );
+}
+
+function VoiceTab({ data, dataLoading, duration }: Props) {
+  if (dataLoading) return <SkeletonBlock chart />;
+  const voice = data?.voice;
+  if (!voice) return <p className="note">Voice wasn't measured for this run.</p>;
+  const ser = (k: keyof Window, name: string, blue?: boolean): Series[] => [{ name, blue, points: voice.windows.map((w) => ({ t: w.start_ms, v: typeof w[k] === "number" ? (w[k] as number) : NaN })) }];
+  const sm = voice.summary ?? {};
+  return (
+    <div className="deepdive">
+      <div className="stat-row">
+        <Stat v={num(sm.overall_wpm)} k="words / min" />
+        <Stat v={num(sm.median_pitch_hz) && `${num(sm.median_pitch_hz)} Hz`} k="typical pitch" />
+        <Stat v={num(sm.pitch_std_hz) && `±${num(sm.pitch_std_hz)} Hz`} k="pitch variation" />
+        <Stat v={num(sm.aligned_words)} k="words timed" />
+      </div>
+      <div className="grid-2">
+        <SignalChart title="Speaking rate" series={ser("wpm", "Rate")} duration={duration} unit="words/min" min={0} />
+        <SignalChart title="Pitch" series={ser("pitch_hz", "Pitch", true)} duration={duration} unit="Hz" />
+        <SignalChart title="Pitch variation" series={ser("pitch_std_hz", "Variation")} duration={duration} unit="Hz" min={0} />
+        <SignalChart title="Voiced share" series={ser("voiced_fraction", "Voiced", true)} duration={duration} unit="share" min={0} max={1} />
+      </div>
+    </div>
+  );
+}
+
+function AudioTab({ data, dataLoading, duration }: Props) {
+  const focus = usePlayhead((s) => s.focus);
+  if (dataLoading) return <SkeletonBlock chart />;
+  const audio = data?.audio;
+  if (!audio) return <p className="note">Audio wasn't measured for this run.</p>;
+  const L = audio.loudness ?? {};
+  return (
+    <div className="deepdive">
+      <div className="stat-row">
+        <Stat v={num(L.integrated_lufs, 1) && `${num(L.integrated_lufs, 1)} LUFS`} k="overall loudness" />
+        <Stat v={num(L.true_peak_dbfs, 1) && `${num(L.true_peak_dbfs, 1)} dB`} k="loudest peak" />
+        <Stat v={num(audio.summary?.silence_s, 0) && `${num(audio.summary?.silence_s, 0)} s`} k="silence" />
+        <Stat v={num(audio.summary?.clipping_windows)} k="clipped moments" />
+      </div>
+      <SignalChart title="Level" series={[{ name: "Level", points: (audio.rms?.t_ms ?? []).map((t, i) => ({ t, v: audio.rms?.dbfs[i] ?? NaN })) }]} duration={duration} unit="dBFS" min={-80} max={0} />
+      <SignalChart title="Loudness" series={[{ name: "Short-term loudness", blue: true, points: (L.short_term_t_ms ?? []).map((t, i) => ({ t, v: L.short_term_lufs?.[i] ?? NaN })) }]} duration={duration} unit="LUFS" />
+      <section className="panel">
+        <div className="chart-head"><h3>Silent gaps</h3></div>
+        {audio.silence?.length ? <div className="chips">{audio.silence.map((s, i) => <button key={i} className="chip num" onClick={() => focus(s, null)}>{clock(s.start_ms)} · {((s.end_ms - s.start_ms) / 1000).toFixed(1)} s</button>)}</div>
+          : <p className="note">No silent gaps found.</p>}
+      </section>
+    </div>
+  );
 }

@@ -576,7 +576,8 @@ def jev_review(run_id: str, body: JevReviewIn):
         segs = [s for s in segs if s["interval"]["end_ms"] > max(0, a-20000) and s["interval"]["start_ms"] < b+20000]
     chunks = make_chunks(segs)
     title = (get_run(run_id).get("project") or {}).get("title", "Video")
-    return judge_chunks(title, chunks, question=body.question + (" Selected interval: " + json.dumps(body.selection) if body.selection else ""))
+    from pipeline.reasoning.jev import guard_announced_replays
+    return guard_announced_replays(judge_chunks(title, chunks, question=body.question + (" Selected interval: " + json.dumps(body.selection) if body.selection else "")), chunks)
 
 
 @app.get("/api/v1/runs/{run_id}/deepdive")
@@ -594,26 +595,34 @@ def get_deepdive(run_id: str):
 
 @app.get("/api/v1/runs/{run_id}/prediction")
 def get_prediction(run_id: str):
-    """The text retention model's prediction (rule-based, uncalibrated). 404 for packages built before it existed."""
+    """The text retention model's prediction (rule-based, uncalibrated). 404 for packages built before it existed.
+
+    Returns the flat v3 contract (docs/PREDICTION_CONTRACT.md); v2 packages are upgraded as far as their data allows."""
+    from pipeline.predict.view import unpack
+
     r = _run_row(run_id)
     rows = read_jsonl(Path(r.dir), "predictions")
     if not rows:
         raise ApiError(404, "no_prediction", "this package predates the text retention model; re-run finish and import again")
-    p = rows[0]
-    p.pop("features", None)  # large; only needed server-side for recompute
-    return p
+    return unpack(rows[0])  # drops `features` (large; only needed server-side for recompute)
 
 
 class PredictionIn(BaseModel):
     retention_at_30s: float = Field(gt=0, le=1)
     retention_at_end: float = Field(gt=0, le=1)
     acknowledged: bool
+    # optional baseline shape (defaults = model defaults); ranges mirror pipeline.predict.model.Baseline.RANGES
+    shape_k: float | None = Field(default=None, ge=0.3, le=1.0)
+    end_drop_multiplier: float | None = Field(default=None, ge=1.0, le=3.0)
+    end_drop_fraction: float | None = Field(default=None, ge=0.0, le=0.2)
 
 
 @app.post("/api/v1/runs/{run_id}/prediction")
 def recompute_prediction(run_id: str, body: PredictionIn):
-    """Same model, same features, different assumed neutral-video anchors. Requires acknowledging assumptions."""
-    from pipeline.predict.model import Anchors, drop_moments, predict
+    """Same model, same features, different assumed anchors / baseline shape. Requires acknowledging assumptions."""
+    from pipeline.predict.model import Anchors, Baseline, drop_moments, predict
+    from pipeline.predict.risk import attach_findings
+    from pipeline.predict.view import unpack
 
     r = _run_row(run_id)
     if not body.acknowledged:
@@ -622,22 +631,24 @@ def recompute_prediction(run_id: str, body: PredictionIn):
     if not rows:
         raise ApiError(404, "no_prediction", "this package predates the text retention model")
     stored = rows[0]
+    d = Baseline()
+    baseline = Baseline(shape_k=d.shape_k if body.shape_k is None else body.shape_k,
+                        end_drop_multiplier=d.end_drop_multiplier if body.end_drop_multiplier is None else body.end_drop_multiplier,
+                        end_drop_fraction=d.end_drop_fraction if body.end_drop_fraction is None else body.end_drop_fraction)
     try:
-        p = predict(stored["features"], Anchors(body.retention_at_30s, body.retention_at_end), duration_ms=stored.get("feature_info", {}).get("duration_ms"))
+        p = predict(stored["features"], Anchors(body.retention_at_30s, body.retention_at_end),
+                    duration_ms=stored.get("feature_info", {}).get("duration_ms"), baseline=baseline)
     except ValueError as exc:
         raise ApiError(422, "invalid_assumptions", str(exc)) from exc
-    quotes = {(m["start_s"], m["end_s"]): m for m in stored["drop_moments"]}
-    moments = []
-    for m in drop_moments(p):
-        old = quotes.get((m["start_s"], m["end_s"]))
-        a, b = m['start_s']*1000, m['end_s']*1000
-        segs = read_jsonl(Path(r.dir), "transcript")
-        quote = " ".join(x['text'] for x in segs if x['interval']['end_ms']>a and x['interval']['start_ms']<b)
-        moments.append({**m, "quote": quote or None, "issue_ids": old.get("issue_ids", []) if old else [],
-                        "finding_ids": [f['finding_id'] for f in stored.get('analysis',{}).get('findings',[]) if f['start_ms']<b and f['end_ms']>a]})
-    return {**{k: stored[k] for k in ("prediction_id", "run_id", "feature_info", "created_at")},
-            **{k: p[k] for k in ("model_version", "label", "calibrated", "anchors", "per_second", "summary", "weights", "notes")},
-            "drop_moments": moments, "analysis": stored.get("analysis", {}), "recomputed": True}
+    base = unpack(stored)  # ranked findings + risk bins (independent of the scenario assumptions)
+    old_issues = {(m["start_s"], m["end_s"]): m.get("issue_ids", []) for m in stored.get("drop_moments", [])}
+    segs = read_jsonl(Path(r.dir), "transcript")
+    moments = drop_moments(p)
+    attach_findings(moments, base["findings"], segs)
+    for m in moments:
+        m["issue_ids"] = old_issues.get((m["start_s"], m["end_s"]), [])
+    out = unpack(stored, scenario=p, moments=moments)
+    return {**out, "recomputed": True}
 
 
 class HypotheticalIn(BaseModel):

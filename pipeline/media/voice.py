@@ -44,6 +44,8 @@ def analyse_voice(wav: Path, words: list[dict], duration_ms: int, vad=None):
         rate=w.getframerate()
         x=np.frombuffer(w.readframes(w.getnframes()),dtype='<i2').astype(float)/32768
     frames=pitch_frames(x,rate)
+    onsets=[w.get('interval',w).get('start_ms') for w in words]
+    onsets=[t0 for t0 in onsets if isinstance(t0,(int,float))]
     def speech(t):
         return vad is None or any(v['start_ms']<=t<v['end_ms'] for v in vad)
     windows=[]
@@ -51,7 +53,8 @@ def analyse_voice(wav: Path, words: list[dict], duration_ms: int, vad=None):
         end=min(duration_ms,start+10000)
         f=[p for p in frames if start<=p[0]<end and speech(p[0])]
         hz=[p[1] for p in f if p[1] is not None]
-        count=sum(start<=w.get('interval',w)['start_ms']<end for w in words)
+        # unaligned words have start_ms None (common in Hindi/mixed): they cannot be placed in a window
+        count=sum(1 for t0 in onsets if start<=t0<end)
         windows.append({'start_ms':start,'end_ms':end,'wpm':round(count*60000/(end-start),1),
                         'pitch_hz':round(float(np.median(hz)),2) if hz else None,
                         'pitch_std_hz':round(float(np.std(hz)),2) if hz else None,
@@ -59,13 +62,13 @@ def analyse_voice(wav: Path, words: list[dict], duration_ms: int, vad=None):
     hz=[p[1] for p in frames if p[1] is not None and speech(p[0])]
     return {'status':'complete','windows':windows,'summary':{'median_pitch_hz':round(float(np.median(hz)),2) if hz else None,
             'pitch_std_hz':round(float(np.std(hz)),2) if hz else None,'words':len(words),
-            'overall_wpm':round(len(words)*60000/duration_ms,1)},
+            'overall_wpm':round(len(words)*60000/duration_ms,1),'aligned_words':len(onsets)},
             'method':'PCM waveform normalized autocorrelation, 40ms frames / 20ms hop, 70–400Hz, correlation >=0.6; 10s summaries',
             'limitations':['Music, multiple speakers and octave errors can distort pitch.','Pitch variation does not establish emotion, vocal monotony, or attention.','WPM uses aligned word onsets and elapsed window duration, including pauses.']}
 
 
 def voice_spec():
-    return StageSpec(name='voice',version='1',deps=('audio','align','probe'),optional_deps=('asr',),config={'pitch_range_hz':[70,400],'window_ms':10000,'correlation_min':.6})
+    return StageSpec(name='voice',version='2',deps=('audio','align','probe'),optional_deps=('asr',),config={'pitch_range_hz':[70,400],'window_ms':10000,'correlation_min':.6})
 
 
 def voice_stage(source):

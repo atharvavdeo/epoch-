@@ -3,7 +3,7 @@ import math
 import pytest
 
 from pipeline.predict.features import build_features
-from pipeline.predict.model import Anchors, drop_moments, predict
+from pipeline.predict.model import Anchors, Baseline, drop_moments, predict
 
 
 def test_neutral_video_hits_the_anchors_exactly():
@@ -41,10 +41,13 @@ def test_features_from_transcript_and_structure():
     segs = [{"interval": {"start_ms": i * 5000, "end_ms": i * 5000 + 5000}, "text": t} for i, t in enumerate(
         ["Hi everyone welcome back to the channel today", "So in this video we will look at something",
          "The battery lasted 9 hours and 12 minutes in our test", "For example the screen used 40 percent"] * 5)]
-    st = {"first_substance_ms": 10_000, "hook_ms": 6_000, "promises": [],
+    # v3: setup counts only when longer than 15 s after the hook (rule A1), so substance moved from 10 s to 20 s
+    st = {"first_substance_ms": 20_000, "hook_ms": 6_000, "promises": [],
           "spans": [{"kind": "cta", "interval": {"start_ms": 30_000, "end_ms": 35_000}}]}
     F, info = build_features(100_000, segs, [], st)
-    assert F[3].get("setup_before_substance") == 1.0 and "setup_before_substance" not in F[12]
+    assert F[3].get("setup_before_substance") == 1.0 and "setup_before_substance" not in F[22]
+    F_short, _ = build_features(100_000, segs, [], {**st, "first_substance_ms": 10_000})
+    assert all("setup_before_substance" not in f for f in F_short)
     assert F[11].get("concrete") == 1.0 and F[32].get("cta_or_sponsor") == 1.0
     assert "no word timing: pace features off" in info["sources"]
 
@@ -55,6 +58,9 @@ def test_fractional_final_bin_and_exact_continuous_watchtime():
     assert p['per_second'][-1]['duration_s'] == .25
     assert p['per_second'][-1]['end_s'] == 10.25
     assert p['summary']['end_pct']['central'] == 45
+    # v3 default baseline is curved; shape_k=1 without end drop reproduces the v2 constant hazard exactly
+    p = predict([{} for _ in range(11)], Anchors(.8, .45), duration_ms=10_250,
+                baseline=Baseline(shape_k=1.0, end_drop_multiplier=1.0, end_drop_fraction=0.0))
     hazard = -math.log(.45) / 10.25
     assert p['summary']['avd_s']['central'] == round((1-.45)/hazard, 2)
 
@@ -95,11 +101,15 @@ def test_missing_punctuation_does_not_establish_long_sentences():
 
 
 def test_five_second_risk_exposure_has_short_final_bin_and_group_max():
-    from pipeline.predict.evidence import risk_bins
-    bins = risk_bins([{'repetition': 1, 'low_novelty': 1}]*11, 10_250)
+    # v3: risk bins are built from findings (severity x evidence x overlap), max per cause group, alpha-weighted
+    from pipeline.predict.model import GROUP_ALPHA
+    from pipeline.predict.risk import transcript_risk_bins
+    fs = [{'finding_id': 'r', 'cause_group': 'progress', 'severity': 'high', 'evidence_strength': 'supported', 'start_ms': 0, 'end_ms': 10_250},
+          {'finding_id': 'n', 'cause_group': 'progress', 'severity': 'high', 'evidence_strength': 'supported', 'start_ms': 0, 'end_ms': 10_250}]
+    bins = transcript_risk_bins(fs, 10_250)
     assert [b['duration_s'] for b in bins] == [5, 5, .25]
-    assert all(b['score'] == 20 for b in bins)
-    assert bins[-1]['end_ms'] == 10_250
+    assert all(b['risk'] == b['score'] == pytest.approx(100 * GROUP_ALPHA['progress'][0]) for b in bins)
+    assert bins[-1]['end_ms'] == 10_250 and bins[-1]['end_s'] == 10.25
 
 
 def test_relation_candidates_quote_context_and_never_auto_score():

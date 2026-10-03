@@ -72,6 +72,9 @@ def sentences(segments: list[dict]) -> list[dict]:
     return glued
 
 
+ANSWER_OPENER = re.compile(r"(?i)^(well|simple|easy|because|here's|the answer|it's simple|basically|so the answer)\b")
+
+
 def question_answers(sents: list[dict], max_gap_ms: int = 600_000) -> list[dict]:
     """Questions the narrator asks and where the answer starts.
 
@@ -80,6 +83,7 @@ def question_answers(sents: list[dict], max_gap_ms: int = 600_000) -> list[dict]
     broken promise if never answered.
     """
     out, asked = [], set()
+    seen_before = [" ".join(_words(x["text"])) for x in sents]
     for i, s in enumerate(sents):
         if not s["text"].endswith("?") or len(s["text"].split()) < 4:
             continue
@@ -96,6 +100,8 @@ def question_answers(sents: list[dict], max_gap_ms: int = 600_000) -> list[dict]
             if t["start_ms"] - s["end_ms"] > max_gap_ms:
                 break
             if t["text"].endswith("?"):
+                continue
+            if seen_before[j] in seen_before[:j]:  # a replayed sentence (intro replay) is not an answer
                 continue
             shared = q & _cw(t["text"])
             if len(shared) >= 2 or (len(q) <= 3 and len(shared) >= max(1, len(q) // 2 + 1)):
@@ -115,8 +121,18 @@ def question_answers(sents: list[dict], max_gap_ms: int = 600_000) -> list[dict]
         if cue is not None and (ans is None or ans[0]["start_ms"] > cue["start_ms"]):
             ans = (cue, [])
         rhetorical = bool(QUESTION_START.match(s["text"])) is False
+        # A statement starting within 3 s of a wh-question is the speaker answering it ("…dull moments? Simple. He'll…"),
+        # even when it shares no words with the question.
+        nxt = sents[i + 1] if i + 1 < len(sents) else None
+        if (ans is None or ans[0]["start_ms"] - s["end_ms"] > 10_000) and nxt is not None and not nxt["text"].endswith("?") \
+                and nxt["start_ms"] - s["end_ms"] <= 3_000 and QUESTION_START.match(s["text"]) \
+                and (len(nxt["text"].split()) <= 3 or ANSWER_OPENER.match(nxt["text"])):
+            ans, cue = (nxt, []), nxt
         gap = (ans[0]["start_ms"] - s["end_ms"]) if ans else None
-        kind = (("framing" if s["start_ms"] < 60_000 else "no_callback") if ans is None else "immediate" if gap <= 10_000 else "short" if gap <= 60_000 else "open_loop")
+        if s["start_ms"] < 60_000:  # opening questions frame the whole video; the promise ledger tracks their payoff
+            kind = "framing"
+        else:
+            kind = "no_callback" if ans is None else "immediate" if gap <= 10_000 else "short" if gap <= 60_000 else "open_loop"
         out.append({"question": s, "answer": ans[0] if ans else None, "shared_words": ans[1] if ans else [],
                     "gap_ms": gap, "kind": kind, "rhetorical_form": rhetorical,
                     "answer_detection": "adjacent_answer_cue" if cue is not None and ans and ans[0] is cue else "lexical_overlap" if ans else None})

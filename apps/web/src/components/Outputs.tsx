@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
+import { IconDownload, IconEye } from "./Icons";
+import { SkeletonBlock } from "./Spinner";
 
 export function Outputs({ runId }: { runId: string }) {
   const q = useQuery({ queryKey: ["outputs", runId], queryFn: () => api.outputs(runId) });
@@ -17,13 +19,11 @@ export function Outputs({ runId }: { runId: string }) {
       try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
     } });
   return <div>
-    <h3>Every output from this run</h3>
-    <p className="muted">Measurements, transcript, reasoning, estimates, sampled frames and provenance are preserved with this run. Missing stages remain listed in Method and data.</p>
     <div className="actions">
-      <a href={api.outputsZipUrl(runId)}><button className="hero">Download all outputs</button></a>
+      <a href={api.outputsZipUrl(runId)}><button className="hero"><IconDownload size={16} />Download all</button></a>
       <input aria-label="Filter outputs" placeholder="Find a file or stage…" value={filter} onChange={e => setFilter(e.target.value)} />
     </div>
-    {q.isLoading && <p>Loading outputs…</p>}
+    {q.isLoading && <SkeletonBlock lines={4} />}
     {q.error && <p className="err">{(q.error as Error).message}</p>}
     <p className="faint">{files.length} files · {(files.reduce((n, f) => n + f.bytes, 0) / 1048576).toFixed(1)} MB</p>
     <div style={{ maxHeight: 500, overflow: "auto" }}>
@@ -31,8 +31,8 @@ export function Outputs({ runId }: { runId: string }) {
         <tbody>{files.filter(f => `${f.name} ${f.stage}`.toLowerCase().includes(filter.toLowerCase())).map(f => <tr key={f.artifact_id}>
           <td style={{ wordBreak: "break-word", padding: 8 }}>{f.name}<div className="faint">{f.stage}</div></td>
           <td>{f.bytes < 1048576 ? `${(f.bytes / 1024).toFixed(1)} KB` : `${(f.bytes / 1048576).toFixed(1)} MB`}</td>
-          <td><a href={api.outputUrl(runId, f.artifact_id)}><button className="quiet">Download</button></a>
-            {(/\.(jpg|mp4|wav)$/.test(f.name) || /\.(json|jsonl|txt|csv|srt|vtt)$/.test(f.name) && f.bytes <= 2_000_000) && <button className="quiet" onClick={() => setSelected(f.artifact_id)}>Preview</button>}</td>
+          <td style={{ whiteSpace: "nowrap" }}><a href={api.outputUrl(runId, f.artifact_id)}><button className="quiet" aria-label={"Download " + f.name}><IconDownload size={16} /></button></a>
+            {(/\.(jpg|mp4|wav)$/.test(f.name) || /\.(json|jsonl|txt|csv|srt|vtt)$/.test(f.name) && f.bytes <= 2_000_000) && <button className="quiet" onClick={() => setSelected(f.artifact_id)} aria-label={"Preview " + f.name}><IconEye size={16} /></button>}</td>
         </tr>)}</tbody></table>
     </div>
     {selected && <div style={{ marginTop: 24 }}><div className="actions"><h4>{files.find(f => f.artifact_id === selected)?.name}</h4>

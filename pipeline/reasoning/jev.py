@@ -76,9 +76,28 @@ def judge_chunks(title,chunks,transport=None,question=""):
     return result
 
 
+def guard_announced_replays(result, chunks):
+    """E-02: a replay the speaker announces ("see if you can spot them in the hook to this video") is an example the
+    next passage analyses. Its wording duplicates earlier text by design, so the redundancy check below would accept a
+    shortening. Live Jev judged the test video's replay "shorten" at 71% (2026-10-03); route such passages to review."""
+    from pipeline.reasoning.transcript_signals import REPLAY_CUES, _norm
+    order=[c['chunk_id'] for c in chunks]; by_id={c['chunk_id']:c for c in chunks}
+    for d in result.get('decisions',[]):
+        if d['decision'] not in ('rewrite','shorten'): continue
+        i=order.index(d['chunk_id']) if d['chunk_id'] in by_id else -1
+        here=by_id[d['chunk_id']]['text'] if i>=0 else d.get('quote','')
+        before=by_id[order[i-1]]['text'][-300:] if i>0 else ''
+        cue=REPLAY_CUES.search(_norm(here[:400])) or REPLAY_CUES.search(_norm(before))
+        if cue:
+            d.update({'decision':'needs_review','replay_guard':cue.group(0),
+                      'reason':f"The speaker announces a replay here (\"{cue.group(0)}\"): it is an example the next passage analyses, so repeated wording is intended. Jev leaned toward {d['raw_choice']}; no edit is accepted (E-02)."})
+    return result
+
+
 def explain_decisions(result, chunks):
     """One generative call for actionable judgments; sources and draft remain separate."""
     from pipeline.reasoning.llm import CerebrasClient, LLMError
+    result=guard_announced_replays(result, chunks)
     candidates=[d for d in result.get("decisions",[]) if d["decision"] in ("rewrite","shorten")]
     if not candidates:
         return result
@@ -117,7 +136,7 @@ def explain_decisions(result, chunks):
 
 
 def jev_spec(source):
-    return StageSpec(name='jev',version='4',deps=('align',),config={'model':'jev-1.13.0','max_batch_passages':12,'confidence_threshold':.65,'max_calls':8},extra={'title':source['project']['title']})
+    return StageSpec(name='jev',version='5',deps=('align',),config={'model':'jev-1.13.0','max_batch_passages':12,'confidence_threshold':.65,'max_calls':8},extra={'title':source['project']['title']})
 
 
 def jev_stage(source):

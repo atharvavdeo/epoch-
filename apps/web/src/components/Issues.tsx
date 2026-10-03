@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, fmt, type Issue, type RiskBin, type Segment } from "../api";
 import { overlaps, usePlayhead } from "../store";
 import { issueLabel } from "./Timeline";
+import { Spinner } from "./Spinner";
 
 const OP: Record<string, string> = { cut: "Cut", move: "Move", rewrite: "Rewrite", insert_visual: "Add visual", adjust_audio: "Fix audio" };
 const SEV_ORDER = { high: 0, medium: 1, low: 2 } as const;
@@ -22,7 +23,7 @@ export function originalText(segments: Segment[], iv: { start_ms: number; end_ms
 export function Evidence({ runId, id }: { runId: string; id: string }) {
   const q = useQuery({ queryKey: ["ev", runId, id], queryFn: () => api.evidence(runId, id) });
   const { focus, seek } = usePlayhead();
-  if (q.isLoading) return <div className="faint">loading evidence…</div>;
+  if (q.isLoading) return <div className="ev"><span className="skel" style={{ width: "70%", height: 14 }} /></div>;
   if (q.error || !q.data) return <div className="err">evidence unavailable</div>;
   const { evidence: e, ref, frames } = q.data;
   const text = (ref?.text ?? ref?.statement ?? "") as string;
@@ -70,8 +71,8 @@ export function FindingDetail({ runId, issue, segments, risk }: { runId: string;
           {issue.evidence_status === "supported" ? "Supported" : "Provisional"}</span>
         {issue.review_status !== "open" && <span className="pill amber">{issue.review_status}</span>}
       </div>
-      <section><h4>What happened?</h4><p>{issue.explanation}</p></section>
-      <section><h4>Where?</h4>
+      <section><h4>What happens</h4><p>{issue.explanation}</p></section>
+      <section><h4>Where</h4>
         <div className="row">
           <button className="time" onClick={() => focus(iv, issue.issue_id)}>{fmt(iv.start_ms)}–{fmt(iv.end_ms)}</button>
           <span className="faint">{((iv.end_ms - iv.start_ms) / 1000).toFixed(1)} s · {issue.risk_track} track</span>
@@ -82,11 +83,11 @@ export function FindingDetail({ runId, issue, segments, risk }: { runId: string;
         {!!notInspected.length && <div className="uninspected">Uninspected here: {notInspected.join(", ")}. This finding does not
           say those parts are fine.</div>}
       </section>
-      <section><h4>What supports this?</h4>
+      <section><h4>Evidence</h4>
         {issue.evidence_ids.map((id) => <Evidence key={id} runId={runId} id={id} />)}
       </section>
-      <section><h4>What might explain it?</h4><p className="muted">{issue.counter_explanation}</p></section>
-      <section><h4>What edit is proposed?</h4>
+      <section><h4>Another explanation</h4><p className="muted">{issue.counter_explanation}</p></section>
+      <section><h4>What to do</h4>
         {!issue.suggestions.length && <div className="edit none">No safe edit proposed: the model's edit would have removed points,
           examples or the hook, so it was discarded. Judge this one by hand.</div>}
         {issue.suggestions.map((s) => (
@@ -104,11 +105,11 @@ export function FindingDetail({ runId, issue, segments, risk }: { runId: string;
           </div>))}
         <div className="actions">
           {issue.review_status !== "accepted"
-            ? <button className="amber" onClick={() => review.mutate("accepted")} disabled={review.isPending}>
+            ? <button className="hero" onClick={() => review.mutate("accepted")} disabled={review.isPending}>{review.isPending && review.variables === "accepted" && <Spinner />}
                 {issue.suggestions.length ? "Add to edit plan" : "Accept finding"}</button>
-            : <button onClick={() => review.mutate("open")}>Remove from plan</button>}
+            : <button onClick={() => review.mutate("open")} disabled={review.isPending}>{review.isPending && review.variables === "open" && <Spinner />}Remove from plan</button>}
           {issue.review_status !== "dismissed"
-            ? <button onClick={() => review.mutate("dismissed")}>Dismiss</button>
+            ? <button className="quiet" onClick={() => review.mutate("dismissed")} disabled={review.isPending}>{review.isPending && review.variables === "dismissed" && <Spinner />}Dismiss</button>
             : <button onClick={() => review.mutate("open")}>Restore</button>}
         </div>
       </section>

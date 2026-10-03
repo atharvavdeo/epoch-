@@ -194,3 +194,15 @@ def test_shown_frames_get_contiguous_labels_and_answers_map_back():
     out = remap_labels(ans, to_pool)
     assert out["segments"][0]["frames"] == ["F05", "F12"] and out["segments"][0]["visible_content"] == "F02 is not a label here"
     assert out["information_flow"]["evidence_frames"] == ["F07"] and out["text_legibility"][0]["frame"] == "F12"
+
+
+def test_repair_recovers_paragraph_id_when_model_puts_text_in_the_id_field():
+    from pipeline.reasoning.narrative import repair_quotes
+    shown = {"P01": "MrBeast has solved YouTube retention. But how does MrBeast reach this magic number?",
+             "P02": "Here is how he approaches the first five seconds."}
+    obj = {"hook": {"chunk": shown["P01"], "quote": "But how does MrBeast reach this magic number?", "kind": "question"}, "spans": []}
+    fixes = repair_quotes(obj, ["P01", "P02"], shown)
+    assert obj["hook"]["chunk"] == "P01" and fixes and fixes[0]["to"]["chunk"] == "P01"
+    bad = {"hook": {"chunk": "something never said", "quote": "", "kind": "claim"}, "spans": []}
+    repair_quotes(bad, ["P01", "P02"], shown)
+    assert bad["hook"]["chunk"] == "something never said"  # no match: stays invalid, validation will reject it

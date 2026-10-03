@@ -5,6 +5,8 @@ import { api, fmt, type Bound } from "../api";
 import { Dock } from "../components/Dock";
 import { EditPlan } from "../components/EditPlan";
 import { issueLabel } from "../components/Timeline";
+import { IconBack } from "../components/Icons";
+import { Spinner, SkeletonBlock } from "../components/Spinner";
 import { overlaps } from "../store";
 
 const b = (x: Bound | null, unit: string, d = 0) =>
@@ -23,7 +25,7 @@ export default function Plan() {
   const hyp = useMutation({ mutationFn: () => api.hypothetical(runId, { retention_at_30s: a30, retention_at_end: aEnd, kappa: 1,
     acknowledged: true, assumed_resolved_issue_ids: resolved }) });
 
-  if (run.isLoading || issues.isLoading) return <div className="shell muted">Loading…</div>;
+  if (run.isLoading || issues.isLoading) return <div className="shell"><SkeletonBlock lines={5} /></div>;
   if (!run.data) return <div className="shell err">Run not found. <Link to="/">Back</Link></div>;
   const items = issues.data?.items ?? [];
   const title = run.data.project?.title ?? run.data.asset.original_name;
@@ -42,7 +44,7 @@ export default function Plan() {
   return (
     <div className="shell">
       <div className="header">
-        <Link to={`/runs/${runId}`}><button className="back" aria-label="Back to review">‹</button></Link>
+        <Link to={`/runs/${runId}`} className="icon-btn icon-lg" aria-label="Back to review" title="Back to review"><IconBack /></Link>
         <div className="title"><h1>Edit plan</h1><div className="sub">{title}</div></div>
         <span />
       </div>
@@ -55,11 +57,11 @@ export default function Plan() {
       {!!conflicts.length && <div className="banner">Conflicts to resolve: {conflicts.join(" · ")}</div>}
       <div className="bottom" style={{ marginTop: 0 }}>
         <div className="card">
-          <div className="section-title"><h3>Queue</h3><span className="sub">accepted findings, in timeline order</span></div>
+          <div className="section-title"><h3>Queue</h3></div>
           <EditPlan issues={items} segments={tr.data?.segments ?? []} title={title} />
         </div>
         <div className="card">
-          <div className="section-title"><h3>Compare</h3><span className="sub">two different questions</span></div>
+          <div className="section-title"><h3>Compare</h3></div>
           <h4 className="fdh">Hypothetical (this plan, assumed audience)</h4>
           <p className="muted" style={{ fontSize: 14 }}>Applies the accepted <b>cuts</b> to the timeline and recomputes the uncalibrated
             scenario with the same assumptions. Moves, rewrites and added visuals are not modelled: they need a reanalysed video.</p>
@@ -78,14 +80,14 @@ export default function Plan() {
                 {" "}{issueLabel(i.type)} {fmt(i.affected_interval.start_ms)} ({i.severity})</label>))}
           </details>
           <div className="actions">
-            <button className="amber" disabled={!ack || !(aEnd > 0 && aEnd <= a30 && a30 <= 1) || hyp.isPending} onClick={() => hyp.mutate()}>
-              Compute hypothetical</button>
+            <button className="soft" disabled={!ack || !(aEnd > 0 && aEnd <= a30 && a30 <= 1) || hyp.isPending} onClick={() => hyp.mutate()}>
+              {hyp.isPending && <Spinner />}Compute what-if</button>
           </div>
           {hyp.error && <p className="err">{(hyp.error as Error).message}</p>}
           {res && res.status !== "hypothetical" && <p className="muted">Not comparable: {res.reason}</p>}
           {res && res.status === "hypothetical" && (
             <div style={{ marginTop: 12 }}>
-              <div className="pill amber">{res.label}</div>
+              <div className="pill">{res.label}</div>
               <table className="cmp">
                 <thead><tr><th /><th>Current</th><th>With this plan</th></tr></thead>
                 <tbody>
