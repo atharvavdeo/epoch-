@@ -22,7 +22,7 @@ def predict_spec(source: dict) -> StageSpec:
     tx = "script" if source.get("kind") == "script" else "align"
     deps = (tx,) if tx == "script" else (tx, "probe")
     b = Baseline()
-    return StageSpec(name="predict", version="7", deps=deps,
+    return StageSpec(name="predict", version="8", deps=deps,
                      optional_deps=("narrative", "audio", "asr", "video_scan", "ocr"),
                      config={"model": MODEL_VERSION, "weights": {k: v[0] for k, v in WEIGHTS.items()},
                              "anchors": {"retention_at_30s": 0.80, "retention_at_end": 0.45},
@@ -70,9 +70,13 @@ def predict_stage(source: dict):
         structure = nar["structure"] if nar else None
         extra = _optional_inputs(ctx, tr, T, vad)
         F, info = build_features(T, tr["segments"], tr.get("words", []), structure, audio, vad, **extra)
+        if source.get("kind") == "script":
+            info["timing_quality"] = source.get("timing_source", "estimated_150wpm")
         pred = predict(F, Anchors(), duration_ms=T, baseline=Baseline())
         evidence = analyse_transcript(F, tr["segments"], T, info, structure)
         pred["notes"].append("Exploratory scenario uses provisional rule candidates, not accepted editorial defects or observed audience departures.")
+        if source.get("kind") == "script":
+            pred["notes"].append("User-supplied script: timings are subtitle cues or estimates; speech rate, voice and audio are not measured.")
         pred["summary"]["timing_source"] = info["timing_quality"]
         apply_risk_to_seconds(pred["per_second"], evidence["risk_bins"])
         moments = drop_moments(pred)

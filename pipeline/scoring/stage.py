@@ -65,13 +65,15 @@ def track_coverage(T: int, deps: dict) -> tuple[dict, dict, list[dict]]:
         notes["text"] = "text inspection: vlm-sampled (no OCR, D18)" if vis_spans else "no OCR and no visual analysis"
     tech_full = "video_scan" in deps and audio_ok
     cov["technical"] = [(0, T)] if tech_full else ([(0, T // 2)] if "video_scan" in deps else [])
-    notes["technical"] = ("decode/black/freeze + waveform checks" if tech_full
-                          else "video checks only; audio checks missing (counted as half coverage)")
+    notes["technical"] = ("decode/black/freeze + waveform checks" if tech_full else
+                          "video checks only; audio checks missing (counted as half coverage)" if "video_scan" in deps else
+                          "visual technical checks unavailable")
     return cov, notes, (vis or {}).get("coverage", [])
 
 
-def score_spec() -> StageSpec:
-    return StageSpec(name="score", version="1", deps=("probe",), optional_deps=("narrative", "visual", "audio", "asr", "align",
+def score_spec(source: dict | None = None) -> StageSpec:
+    script = (source or {}).get("kind") == "script"
+    return StageSpec(name="score", version="2", deps=("script",) if script else ("probe",), optional_deps=("narrative", "visual", "audio", "asr", "align",
                                                                                  "video_scan", "ocr"),
                      config={"formula": FORMULA_VERSION, "risk": RISK_VERSION, "profile": "multimodal-v1",
                              "assumptions": DEFAULT_ASSUMPTIONS})
@@ -79,7 +81,7 @@ def score_spec() -> StageSpec:
 
 def score_stage(source: dict):
     def fn(ctx: StageContext) -> StageResult:
-        T = read_json(ctx.dep("probe").path("probe.json"))["duration_ms"]
+        T = source["duration_ms"] if source.get("kind") == "script" else read_json(ctx.dep("probe").path("probe.json"))["duration_ms"]
         cov, notes, _ = track_coverage(T, ctx.deps)
         issues = read_json(ctx.deps["narrative"].path("narrative.json"))["issues"] if "narrative" in ctx.deps else []
         scored = [ScoredIssue(i["issue_id"], i["risk_track"], i["severity"], i["evidence_status"],

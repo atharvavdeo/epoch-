@@ -39,7 +39,7 @@ const GROUPS: Group[] = [
   { key: "package", label: "Packaging", icon: <IconFolder />, match: /package|export|outputs?/i },
   { key: "import", label: "Importing", icon: <IconDownload />, match: /import|commit/i },
 ];
-type GState = "done" | "running" | "failed" | "skipped" | "waiting";
+type GState = "done" | "partial" | "running" | "failed" | "skipped" | "waiting";
 function groupStates(job: Job, groups: Group[]): Record<string, { state: GState; secs: number }> {
   const out: Record<string, { state: GState; secs: number }> = {};
   const stages: JobStage[] = job.stages ?? [];
@@ -52,6 +52,7 @@ function groupStates(job: Job, groups: Group[]): Record<string, { state: GState;
     if (mine.length) {
       if (mine.some((s) => /fail|error/i.test(s.status))) state = "failed";
       else if (mine.some((s) => /run|progress|active/i.test(s.status))) state = "running";
+      else if (mine.some((s) => s.status === "partial")) state = "partial";
       else if (mine.every((s) => /skip|cached|not_needed|n\/a/i.test(s.status))) state = "skipped";
       else if (mine.every((s) => /complete|done|ok|skip|cached|success/i.test(s.status))) state = "done";
     } else if (currentIdx >= 0) state = i < currentIdx ? "done" : i === currentIdx ? (job.status === "failed" ? "failed" : "running") : "waiting";
@@ -84,7 +85,7 @@ function Processing({ jobId, onRetry }: { jobId: string; onRetry: () => void }) 
   const media = job.kind !== "text";
   const groups = GROUPS.filter((g) => media || !g.media);
   const st = groupStates(job, groups);
-  const progress = typeof job.progress === "number" ? job.progress : groups.filter((g) => st[g.key].state === "done" || st[g.key].state === "skipped").length / groups.length;
+  const progress = typeof job.progress === "number" ? job.progress : groups.filter((g) => ["done", "partial", "skipped"].includes(st[g.key].state)).length / groups.length;
   const live = job.status === "queued" || job.status === "running";
   const elapsed = since(job.started_at ?? job.created_at, live ? null : job.finished_at);
   return (
@@ -104,7 +105,7 @@ function Processing({ jobId, onRetry }: { jobId: string; onRetry: () => void }) 
             <span className="stage-name">{g.label}</span>
             {s.secs > 0 && <span className="faint num">{mmss(s.secs * 1000)}</span>}
             <span className="stage-state">{s.state === "done" ? <IconCheck size={16} /> : s.state === "running" ? <Spinner /> : s.state === "failed" ? <IconClose size={16} />
-              : s.state === "skipped" ? <span className="faint">Skipped</span> : <span className="dot" />}</span>
+              : s.state === "partial" ? <span className="faint">Partial</span> : s.state === "skipped" ? <span className="faint">Skipped</span> : <span className="dot" />}</span>
           </li>;
         })}
       </ol>
@@ -130,6 +131,11 @@ export default function NewAnalysis() {
   const [step, setStep] = useState<Step>(jobParam ? "processing" : params.get("project") ? "upload" : "goal");
   const [form, setForm] = useState({ title: "", category: p0.category ?? "education", language: p0.language ?? "en", audience: "" });
   const projectId = params.get("project");
+  const existing = useQuery({ queryKey: ["project", projectId], queryFn: () => api.project(projectId!), enabled: !!projectId });
+  useEffect(() => {
+    if (existing.data) setForm({ title: existing.data.title, category: existing.data.category,
+      language: existing.data.declared_language, audience: "" });
+  }, [existing.data]);
   const [mode, setMode] = useState<"file" | "paste">("file");
   const [file, setFile] = useState<{ f: File; kind: Kind; duration_ms: number | null } | null>(null);
   const [text, setText] = useState("");

@@ -1,7 +1,7 @@
 # Prediction contract — text-retention-v3
 
 Endpoint: `GET /api/v1/runs/{run_id}/prediction` (and `POST` to recompute with new assumptions).
-Producer: `pipeline/predict/` (stage `predict`, version 6). Converter: `pipeline/predict/view.py`.
+Producer: `pipeline/predict/` (stage `predict`, version 8). Converter: `pipeline/predict/view.py`.
 
 Two outputs, never mixed up:
 

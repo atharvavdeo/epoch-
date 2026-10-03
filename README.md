@@ -1,11 +1,13 @@
 # Epoch — retention review for long-form video
 
-**Mac run verified (2026-10-03):** the video [Ontology vs Metadata](https://youtu.be/ve7AA01vplE) ran through real local media, Whisper, alignment, OCR, embeddings, Cerebras, prediction, scoring and package import. [Open the local review](http://127.0.0.1:8765/runs/5a80ca3b-788c-551f-bb5f-0a4cc2fc546b). The Outputs tab exposes 462 files (137.2 MB), including measurements, all sampled frames, readable reports, original MP4, extracted WAV, provenance and the Colab job. Visual inference was not run; retention remains uncalibrated.
+**Final integration (2026-10-03):** Kawal’s `ui final` changes are integrated into `atharva-new-branch`. Browser uploads now run video, audio or scripts through a serial worker and automatically import validated results. See [the final verification report](docs/FINAL_INTEGRATION_2026-10-03.md) for current evidence and limits.
+
+**Earlier Mac run verified (2026-10-03):** the video [Ontology vs Metadata](https://youtu.be/ve7AA01vplE) ran through real local media, Whisper, alignment, OCR, embeddings, Cerebras, prediction, scoring and package import. [Open the local review](http://127.0.0.1:8765/runs/5a80ca3b-788c-551f-bb5f-0a4cc2fc546b). The Outputs tab exposes 462 files (137.2 MB), including measurements, all sampled frames, readable reports, original MP4, extracted WAV, provenance and the Colab job. Visual inference was not run; retention remains uncalibrated.
 
 Epoch reads a 5–15 minute video (or just its audio) and shows a creator **where viewers are likely to leave, why, and what to change without losing content**.
 
-- **Where it runs:** everything runs locally (Windows today, macOS instructions below).
-- **The one cloud call:** Cerebras (`gpt-oss-120b`), for narrative structure and the assistant.
+- **Where it runs:** media extraction, speech recognition, alignment, embeddings, scoring and storage run locally. macOS was exercised; the new upload worker has not been exercised on Windows.
+- **Cloud services:** Cerebras supplies narrative structure and assistant responses; optional Jev / TypeSafe supplies editorial second opinions. They receive bounded transcript context, not source media.
 - **Visual analysis:** an optional Colab VLM. It is **on hold**; see [docs/VISION_STATUS.md](docs/VISION_STATUS.md).
 
 > **Read this first.**
@@ -45,14 +47,14 @@ Epoch reads a 5–15 minute video (or just its audio) and shows a creator **wher
 | Speech to text (faster-whisper large-v3, CPU) + word alignment (wav2vec2) | **Working** for English. All 2790 words aligned. Punctuation drift fixed with `condition_on_previous_text=False` (A-03); re-verification on the full video is in progress. |
 | Hindi / Hinglish | **Code paths exist, never run end to end** |
 | Narrative pass (Cerebras): chapters, hook, promises, findings, safe edits | **Working**, with quote checking and edit-safety rules (E-01, E-02) |
-| Text retention model (predictor v1) | **Working, uncalibrated.** Test video: 58.9% average viewed (band 57.0–60.5%) |
+| Retention scenario (v3) | **Working, uncalibrated.** Uses explicit assumptions plus text and available media measurements; no audience ground truth. |
 | Transcript relations (question → answer, abstract stretches, load, rhythm) | **Working** (deterministic) |
 | Grounded assistant (RAG over transcript + findings + prediction) | **Working.** Quotes are verified and edit warnings are server-side. |
 | `transcribe` command (audio/video → SRT/VTT/TXT) | **Working** |
-| Website: Projects, New analysis (4 steps), Review, Edit plan, Evaluation, Settings | **Working** locally. A light-theme redesign is in progress. |
+| Website: Projects, New analysis (3 steps), Review, Edit plan, Evaluation, Settings | **Working** locally with the integrated light theme and upload worker. |
 | Visual analysis (Qwen3.5-9B on Colab) | **On hold**: 1 valid answer out of 4 clips |
-| OCR (on-screen text) | Stage exists (PaddleOCR, `--with-ocr`); **not run**, not in packages |
-| Script-only analysis (transcript without media) | **Not built.** The UI checks the file and says so. |
+| OCR (on-screen text) | **Verified on the earlier Mac video run.** Opt-in for CLI; new browser uploads do not request it, but cached OCR can be retained. |
+| Script-only analysis (transcript without media) | **Working through browser paste/upload.** Cue or estimated timings; no measured voice/audio. |
 | Validation against real audience retention | **Not done** |
 
 ---
@@ -79,7 +81,8 @@ echo CEREBRAS_API_KEY=your-key-here > .env
 # 5. website
 cd apps/web && npm install && npx vite build && cd ../..
 .venvs/api/Scripts/python.exe -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765
-# open http://127.0.0.1:8765, then New analysis -> drop outputs/<video>/package/*.retention.zip
+# open http://127.0.0.1:8765, then New analysis -> upload media or paste a script
+# existing .retention.zip packages can also be imported
 ```
 
 **Transcript only** (no subtitles? use this):
@@ -110,7 +113,7 @@ for env in media api asr; do
 done
 .venvs/asr/bin/python scripts/setup_models.py asr align_en align_hi embed
 echo "CEREBRAS_API_KEY=your-key-here" > .env
-echo "EPOCH_ASR_THREADS=8" >> .env                                    # M-series performance cores
+echo "EPOCH_ASR_THREADS=6" >> .env                                    # M-series performance cores
 .venvs/media/bin/python -m pipeline.cli analyze ~/Movies/video.mp4 --title "Exact title" --category education --language en
 .venvs/media/bin/python -m pipeline.cli finish <asset8>
 cd apps/web && npm install && npx vite build && cd ../..
@@ -208,29 +211,13 @@ video/audio ─ probe ─ audio: loudness (EBU R128), clipping windows, silence,
    - one **status pill**: Waiting for local analysis / Local analysis in progress / Ready for Colab / Analysis package ready to import / Ready to review (· visual analysis incomplete)
    - buttons: **Open review**, Resume / Import package, Edit plan
 
-### 6.2 New analysis (`/new`): four steps
-A **stepper** at the top: Goal → Sources → Check → Process. Done steps show ✓ and future steps are disabled, with a tooltip saying why.
-1. **Goal — "What does the video promise?"**
-   - Fields: exact video title (required, explained: "a delayed payoff is judged against it"), intended audience (optional), category (Education / Tech review / Other), primary language (English / Hindi / Hinglish).
-   - Primary action: **Continue**, which creates the project.
-   - Escape hatch: "Already have a finished analysis package? Import it directly."
-2. **Sources — "What do you have?"**
-   - A large central **drop zone**: "Drop a file here, or click to choose", accepting video (MP4/MOV/MKV), audio (MP3/WAV/M4A…), transcript (SRT/VTT/TXT/MD) or a package (.zip). Hint: "No subtitles? Drop the video or audio: speech is transcribed locally".
-   - Once a file is chosen, the zone collapses into a **file summary**: kind pill · name · size · duration (read by the browser) · Change.
-   - Video/audio asks for the **full path** (browsers never reveal folders), with a "Copy as path" tip.
-   - A package shows **Import result ZIP** (primary).
-3. **Check:** a checklist with ✓ / ! / i rows:
-   - title and source
-   - out-of-scope length warning
-   - what will run here
-   - expected time (≈2–3× media length on CPU, computed for this file)
-   - what is not analysed (visuals on hold, OCR off)
-   - for transcripts: line, word and timing check plus a preview, and the honest "Script-only analysis is not built yet"
-4. **Process:**
-   - the exact command (`analyze` for video, `transcribe` for audio) with **Copy command**
-   - live **pipeline status** for the project: Ready for Colab → Waiting for analysis package → Analysis imported, with the stage list while running
-   - the Colab handoff box
-   - **Import result ZIP** (primary) once a package exists
+### 6.2 New analysis (`/new`): three steps
+The stepper is Goal → Upload → Processing.
+1. **Goal:** exact title, optional audience, category and language. Continue opens Upload. Resuming a project loads its saved title and language.
+2. **Upload:** choose video, audio, UTF-8 TXT/MD/SRT/VTT or a finished package; scripts can also be pasted. Media uploads are limited to 2 GB and text files to 2 MB. Scripts require at least 20 words and a timeline between ten seconds and one hour. Plain text uses 150 words/minute estimated timings; subtitle cues retain their timestamps. Start analysis submits the source directly; a full filesystem path is unnecessary.
+3. **Processing:** job progress, stage states, notes and Cancel. One worker runs at a time at reduced priority with six ASR threads. Failure exposes the error and retry path. Completion validates and imports the package, then opens Review. Reloading the job URL resumes polling; restarting the API marks interrupted jobs failed rather than silently repeating cloud calls. Retrying reuses valid cached stages.
+
+Visual inference requires the separate Colab workflow. Browser uploads do not request OCR; existing cached OCR can remain in the result. Scripts provide text evidence only, with no fabricated waveform, word alignment or shot measurements.
 
 ### 6.3 Review (`/runs/:id`): the main workspace
 Top to bottom:

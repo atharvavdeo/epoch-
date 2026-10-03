@@ -315,8 +315,10 @@ def salvage_decisions(obj: dict | None, batch: list[tuple[str, dict]]) -> dict:
 # --------------------------------------------------------------------- stage
 
 def narrative_spec(source: dict) -> StageSpec:
-    return StageSpec(name="narrative", version="13", deps=("align", "embed", "probe", "video_scan", "audio"),
-                     optional_deps=("asr", "visual"),
+    tx = "script" if source.get("kind") == "script" else "align"
+    deps = (tx, "embed") if tx == "script" else (tx, "embed", "probe", "audio")
+    return StageSpec(name="narrative", version="15", deps=deps,
+                     optional_deps=("asr", "visual", "video_scan"),
                      config={"max_calls": MAX_CALLS, "per_call": PER_CALL, "char_budget": INPUT_CHAR_BUDGET,
                              "thresholds": {"intro_ms": 20000, "payoff_ms": 60000, "pause_ms": 2000, "static_shot_ms": 15000,
                                             "rushed": "wpm > max(190, 1.25*median)"}},
@@ -331,9 +333,8 @@ def narrative_stage(source: dict, llm_factory=None):
 
         secs = _sections()
         title, cat, lang = (source["project"][k] for k in ("title", "category", "declared_language"))
-        probe = read_json(ctx.dep("probe").path("probe.json"))
-        T = probe["duration_ms"]
-        tr = read_json(ctx.dep("align").path("transcript.json"))
+        T = read_json(ctx.dep("probe").path("probe.json"))["duration_ms"] if "probe" in ctx.deps else source["duration_ms"]
+        tr = read_json(ctx.dep("script" if source.get("kind") == "script" else "align").path("transcript.json"))
         segments = tr["segments"]
         emb = read_json(ctx.dep("embed").path("chunks.json"))
         chunks, pairs = emb["chunks"], emb["pairs"]
@@ -341,9 +342,9 @@ def narrative_stage(source: dict, llm_factory=None):
             raise StageError("no_transcript", "transcript is empty; narrative analysis needs speech")
         chunk_by_id = {c["chunk_id"]: c for c in chunks}
         seg_by_id = {s["segment_id"]: s for s in segments}
-        vs = ctx.dep("video_scan")
-        shots, filters = read_json(vs.path("shots.json")), read_json(vs.path("filters.json"))
-        audio = read_json(ctx.dep("audio").path("audio.json"))
+        vs = ctx.deps.get("video_scan")
+        shots, filters = (read_json(vs.path("shots.json")), read_json(vs.path("filters.json"))) if vs else ([], {"black": []})
+        audio = read_json(ctx.dep("audio").path("audio.json")) if "audio" in ctx.deps else {}
         vad = read_json(ctx.deps["asr"].path("vad.json"))["speech"] if "asr" in ctx.deps else None
         visual = read_json(ctx.deps["visual"].path("visual.json")) if "visual" in ctx.deps else None
 
@@ -359,9 +360,11 @@ def narrative_stage(source: dict, llm_factory=None):
         # ---- structure pass
         para_text, shown = paragraphs_text(chunks)
         cuts_per_min = round(len(shots) / (T / 60000), 1)
-        measured = (f"{len(shots)} shots ({cuts_per_min}/min); speech present "
+        measured = (f"{len(shots)} measured shots ({cuts_per_min}/min)" if vs else "Shot pacing not measured") + ("; speech present "
                     f"{'unknown' if vad is None else str(round(100 * sum(v['end_ms'] - v['start_ms'] for v in vad) / T)) + '%'}; "
                     f"visual analysis {'available' if visual else 'not available'}")
+        if source.get("kind") == "script":
+            measured += "; user-supplied script, approximate timeline; speech rate, voice and audio not measured"
         user = (secs["STRUCTURE"].replace("{title}", title).replace("{category}", cat).replace("{language}", lang)
                 .replace("{duration}", mmss(T)).replace("{measured}", measured).replace("{paragraphs}", para_text))
         quote_repairs: list[dict] = []
@@ -393,7 +396,7 @@ def narrative_stage(source: dict, llm_factory=None):
         for e in (visual or {}).get("evidence", []):
             if e["kind"] == "observation":
                 obs_ev[e["ref_id"]] = e["evidence_id"]
-        rates = word_speech_rates(chunks, tr.get("words", []), seg_by_id)
+        rates = [] if source.get("kind") == "script" else word_speech_rates(chunks, tr.get("words", []), seg_by_id)
         rushed = sorted([r for r in rates if r["wpm"] > max(190, 1.25 * r["median"])], key=lambda r: -r["wpm"])  # relative to this speaker
         long_static = [s for s in shots if s["end_ms"] - s["start_ms"] >= 15_000 and (s["metrics"].get("motion_mean") or 0) < 0.02]
         builder = CandidateBuilder({
@@ -441,7 +444,12 @@ def narrative_stage(source: dict, llm_factory=None):
 
         issues, suggestions, dismissed = build_issues(cands, decisions, book, obs_by_ev, source, segments)
         promises = build_promises(st, chunk_by_id, seg_by_id, book)
-        signals = narrative_signals(st, pairs, chunk_by_id, rates, book) + transcript_signals(chunks, chunk_by_id, seg_by_id, segments)
+        signals = narrative_signals(st, pairs, chunk_by_id, rates, book)
+        if source.get("kind") == "script":
+            for signal in signals:
+                signal["modality"] = "text"
+        else:
+            signals += transcript_signals(chunks, chunk_by_id, seg_by_id, segments)
         evidence = [{k: v for k, v in e.items() if not k.startswith("_")} for e in book.records.values()]
         write_json(ctx.out / "narrative.json", {
             "structure_raw": structure, "structure_dropped_spans": dropped_spans, "quote_repairs": quote_repairs, "structure": st, "issues": issues, "suggestions": suggestions,

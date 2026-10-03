@@ -41,7 +41,9 @@ def test_long_static_shot_contributes_and_cut_is_weak_protective():
     assert info["visual_pacing"]["long_static_shots"] == 1 and "40 shots (visual pacing)" not in info["sources"]
     assert any(s.endswith("shots (visual pacing)") for s in info["sources"])
     p = predict(F, duration_ms=T)
-    base = predict(build_features(T, SEGS, [], None)[0], duration_ms=T)
+    # Isolate the static-shot penalty: cuts also add protective signals and measured
+    # micro-variation, so a video with no shot data is not a matched baseline.
+    base = predict([{k: v for k, v in f.items() if k != "long_static_shot"} for f in F], duration_ms=T)
     assert p["summary"]["avd_s"]["central"] < base["summary"]["avd_s"]["central"]
     assert any(m["reasons"][0]["feature"] == "long_static_shot" for m in drop_moments(p))
     f = next(x for x in build_evidence(F, SEGS, T, info)["findings"] if x["rule_id"] == "long_static_shot")

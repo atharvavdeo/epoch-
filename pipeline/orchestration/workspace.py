@@ -23,6 +23,9 @@ def register_video(video: Path, *, title: str, category: str, language: str, pro
     sha = sha256_file(video)
     root = data_dir() / "work" / sha[:16]
     src_path = root / "source.json"
+    if src_path.exists() and project_id and read_json(src_path)["project"]["project_id"] != project_id:
+        root = data_dir() / "work" / f"{sha[:16]}_{project_id[:8]}"
+        src_path = root / "source.json"
     if src_path.exists():
         source = read_json(src_path)
         if source["sha256"] != sha:

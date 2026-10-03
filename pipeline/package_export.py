@@ -48,7 +48,8 @@ def code_revision() -> str:
 
 
 def export_spec(source: dict) -> StageSpec:
-    return StageSpec(name="export", version="7", deps=("probe", "proxy", "score"),
+    script = source.get("kind") == "script"
+    return StageSpec(name="export", version="9", deps=("script", "score") if script else ("probe", "proxy", "score"),
                      optional_deps=("audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual", "embed",
                                     "narrative", "predict", "voice", "jev"),
                      config={"schema": SCHEMA_VERSION, "producer": PRODUCER_VERSION},
@@ -64,7 +65,9 @@ def export_stage(source: dict, ws):
     def fn(ctx: StageContext) -> StageResult:
         d = ctx.deps
         run_id = det_uuid("run", ctx.fingerprint)
-        probe = read_json(d["probe"].path("probe.json"))
+        script = source.get("kind") == "script"
+        probe = ({"duration_ms": source["duration_ms"], "metadata": source["metadata"]} if script
+                 else read_json(d["probe"].path("probe.json")))
         T = probe["duration_ms"]
         now = utc_now()
         pkg = ctx.out / "pkg"
@@ -94,16 +97,19 @@ def export_stage(source: dict, ws):
             return [{"run_id": run_id, **{k: v for k, v in r.items() if not k.startswith("_")}} for r in rows]
 
         missing: dict[str, str] = {}
-        for s in REQUIRED_VIDEO_STAGES:
+        required = ["script", "embed", "narrative", "predict", "score"] if script else REQUIRED_VIDEO_STAGES
+        for s in required:
             rec = ws.current(s)
             if rec is None or rec.status not in ("complete", "partial"):
                 missing[s] = ("awaiting Colab visual result (attach-visual)" if s == "visual"
                               else f"stage {s} {'not run' if rec is None else rec.status}")
         # ---------------------------------------------------------- media + records
-        prox = put("media/proxy.mp4", d["proxy"].path("proxy.mp4"), kind="proxy", stage="proxy")
+        if "proxy" in d:
+            put("media/proxy.mp4", d["proxy"].path("proxy.mp4"), kind="proxy", stage="proxy")
         if Path(source["path"]).suffix.lower() == ".mp4":
             put("media/source.mp4", Path(source["path"]), kind="source_video", stage="probe")
-        tr = read_json(d["align"].path("transcript.json")) if "align" in d else None
+        tx = "script" if script else "align"
+        tr = read_json(d[tx].path("transcript.json")) if tx in d else None
         evidence: dict[str, dict] = {}
         signals: list[dict] = []
         observations, frames_needed, frame_meta = [], {}, {}
@@ -202,6 +208,11 @@ def export_stage(source: dict, ws):
                                  "visibility_precision": "sampled", "detector_confidence": t["detector_confidence"]})
         score = read_json(d["score"].path("score.json"))
         coverage = coverage_records(T, score, d)
+        if script:
+            coverage = [{"modality": m, "interval": {"start_ms": 0, "end_ms": T},
+                         "status": "observed" if m == "text" else "unknown", "sampling_profile": "user script",
+                         "evidence_ids": [], "reason": None if m == "text" else "No source media: not measured"}
+                        for m in ("speech", "visual", "audio", "text")]
 
         issues = nar["issues"] if nar else []
         suggestions = nar["suggestions"] if nar else []
@@ -214,13 +225,15 @@ def export_stage(source: dict, ws):
         risk_rows = [{**b, "contributing_issue_ids": [x for x in b["contributing_issue_ids"] if x in keep_iss]} for b in score["risk"]]
         ev_rows = [{k: v for k, v in e.items() if not k.startswith("_")} for e in evidence.values()]
 
-        put("data/transcript.jsonl", rows=R(tr["segments"]) if tr else [], kind="data", stage="align")
-        put("data/words.jsonl", rows=tr["words"] if tr else [], kind="data", stage="align")
+        put("data/transcript.jsonl", rows=R(tr["segments"]) if tr else [], kind="data", stage=tx)
+        put("data/words.jsonl", rows=tr["words"] if tr else [], kind="data", stage=tx)
         put("data/shots.jsonl", rows=R(shots_rows), kind="data", stage="video_scan")
         put("data/frames.jsonl", rows=frames_rows, kind="data", stage="frames")
         if "ocr" in d:
             put("data/ocr.jsonl", rows=R(ocr_rows), kind="data", stage="ocr")
-        else:
+        elif script:
+            put("data/ocr.jsonl", rows=[], kind="data", stage="script")
+        elif not script:
             missing.setdefault("ocr", "OCR disabled (D18): text inspected by the VLM on sampled frames")
         put("data/signals.jsonl", rows=R(signals), kind="data", stage="score")
         put("data/observations.jsonl", rows=R(observations), kind="data", stage="visual")
@@ -241,15 +254,15 @@ def export_stage(source: dict, ws):
         project = {**{k: source["project"][k] for k in ("project_id", "title", "category", "declared_language", "created_at",
                                                         "updated_at", "description")}, "active_run_id": None}
         meta = probe["metadata"]
-        asset = {"asset_id": source["asset_id"], "project_id": source["project"]["project_id"], "kind": "video",
+        asset = {"asset_id": source["asset_id"], "project_id": source["project"]["project_id"], "kind": "script" if script else "video",
                  "sha256": source["sha256"], "original_name": source["original_name"], "bytes": source["bytes"],
-                 "duration_ms": T, "time_origin": "source_pts", "metadata": meta, "parent_asset_id": None,
+                 "duration_ms": T, "time_origin": "estimated_script" if script else "source_pts", "metadata": meta, "parent_asset_id": None,
                  "original_media_artifact_id": None}
         put("data/project.json", obj=project, kind="data", stage="probe")
         put("data/asset.json", obj=asset, kind="data", stage="probe")
 
         stages, events = [], []
-        for name in REQUIRED_VIDEO_STAGES + ["visual_job", "ocr"]:
+        for name in dict.fromkeys(required + (["jev"] if script else ["visual_job", "ocr", "voice", "jev"])):
             rec = ws.current(name)
             if rec is None:
                 stages.append({"stage_id": f"{name}:none", "name": name, "status": "skipped" if name == "ocr" else "pending",
@@ -278,8 +291,9 @@ def export_stage(source: dict, ws):
                       "hardware": {"local": platform.processor() or platform.machine(), "os": platform.platform(),
                                    "vlm": (vis_info or {}).get("qualification", {}).get("key") and vis_info.get("profile")},
                       "precision": "local fp32 cpu; vlm bf16" if vis_info else "local fp32 cpu",
-                      "sampling_profile": {"frames": "1fps+cut boundaries", "vlm": "20s clips <=32 frames 448px", "risk_bin_ms": 5000},
-                      "detector_config": {"text_inspection": "ocr" if "ocr" in d else "vlm-sampled (no OCR, D18)"},
+                      "sampling_profile": {"frames": "not sampled" if script else "1fps+cut boundaries",
+                                           "vlm": "not run" if script else "20s clips <=32 frames 448px", "risk_bin_ms": 5000},
+                      "detector_config": {"text_inspection": "user-script" if script else "ocr" if "ocr" in d else "vlm-sampled (no OCR, D18)"},
                       "scoring_version": score["scenarios"][0]["formula_version"] if score["scenarios"] else "scenario-survival-v1",
                       "source_rights_note": "Operator-supplied media analysed locally for evaluation; not redistributed.",
                       "external_service_model": nar_llm.get("model")}
@@ -288,7 +302,7 @@ def export_stage(source: dict, ws):
         run = {"run_id": run_id, "project_id": source["project"]["project_id"], "asset_id": source["asset_id"],
                "status": "partial" if missing else "complete", "schema_version": SCHEMA_VERSION,
                "config_hash": fingerprint({s["name"]: s["config"] for s in stages}), "input_fingerprint": ctx.fingerprint,
-               "model_profile": (vis_info or {}).get("profile") or "local-only (no VLM)", "created_at": now, "stages": stages,
+               "model_profile": "script-only" if script else (vis_info or {}).get("profile") or "local-only (no VLM)", "created_at": now, "stages": stages,
                "coverage_summary": cov_summary, "provenance": provenance,
                "parent_run_id": _previous_run(ws, run_id), "source_edit_plan_id": None, "finished_at": now}
         put("data/run.json", obj=run, kind="data", stage="score")
@@ -322,7 +336,7 @@ def export_stage(source: dict, ws):
             "audio": ["audio.json", "audio16k.wav"],
             "video_scan": ["scan.json", "frame_index.json", "shots.json", "filters.json"],
             "frames": ["grid.json"], "asr": ["vad.json", "asr_segments.json"],
-            "align": ["transcript.json"], "ocr": ["ocr_frames.jsonl", "ocr_tracks.json"],
+            "align": ["transcript.json"], "script": ["transcript.json"], "ocr": ["ocr_frames.jsonl", "ocr_tracks.json"],
             "visual_job": ["job_summary.json"], "visual": ["visual.json"],
             "embed": ["chunks.json"], "narrative": ["narrative.json"],
             "predict": ["prediction.json"], "voice": ["deepdive.json"], "jev": ["jev.json"], "score": ["score.json"],
@@ -357,8 +371,8 @@ def export_stage(source: dict, ws):
                     "project_id": source["project"]["project_id"], "asset_id": source["asset_id"], "run_id": run_id,
                     "created_at": now, "package_kind": "partial_analysis" if missing else "analysis",
                     "source_sha256": source["sha256"], "files": files,
-                    "required_stage_names": REQUIRED_VIDEO_STAGES,
-                    "completed_stage_names": [s for s in REQUIRED_VIDEO_STAGES if s not in missing],
+                    "required_stage_names": required,
+                    "completed_stage_names": [s for s in required if s not in missing],
                     "missing_stage_names": sorted(missing), "missing_stage_reasons": missing,
                     "exported_by_version": PRODUCER_VERSION}
         write_json(pkg / "manifest.json", manifest)

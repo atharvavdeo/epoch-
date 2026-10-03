@@ -1012,6 +1012,10 @@ def get_artifact(run_id: str, artifact_id: str, request: Request):
 
 
 # ----------------------------------------------------------------- website
+from apps.api.analysis import install as install_analysis
+import sys
+install_analysis(sys.modules[__name__])
+
 WEB_DIST = REPO_ROOT / "apps" / "web" / "dist"
 if WEB_DIST.exists():
     app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")

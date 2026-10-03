@@ -119,6 +119,7 @@ const json = (method: string, body: unknown): RequestInit => ({
 
 export const api = {
   projects: () => call<{ items: Project[] }>("/projects"),
+  project: (id: string) => call<Project>(`/projects/${id}`),
   createProject: (b: { title: string; category: string; declared_language: string; description?: string }) => call<Project>("/projects", json("POST", b)),
   pipeline: (id: string) => call<PipelineState>(`/projects/${id}/pipeline`),
   importLocal: (path: string) => call<{ import_id: string }>("/imports/local", json("POST", { path })),

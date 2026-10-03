@@ -43,7 +43,7 @@ Rebuild the Colab notebook with `scripts/build_notebook.py`. Environments: `scri
 ## Current state (2026-10-03)
 - Status, priorities and what is unverified: `HANDOFF.md` §2–4. Every page and feature: `README.md`.
 - Test video workspace `5234018afef0e99a` (C:\Epoch\epoch-data\work). Imported run `cc4af68b` (58.9% predicted, uncalibrated). An end-to-end re-run with the ASR fix (A-03) was started 2026-10-03; log `../epoch-data/logs/e2e_run.log`.
-- Not built: script-only backend, Hindi/Hinglish validation, OCR run, retention validation against real audience data. Light-theme UI redesign in progress.
+- Historical snapshot: superseded by the final browser integration below. Hindi/Hinglish and retention ground-truth validation remain open.
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
@@ -100,3 +100,9 @@ gives you structural context (callers, dependents, test coverage) that file sear
 
 
 Current upgrade: HANDOFF.md Analysis and review upgrade (2026-10-03). New voice and Jev stages are optional diagnostics; text retention v2 remains candidate-driven/uncalibrated. Never label Jev confidence certainty, lexical callbacks semantic answers, pitch emotion, or scenario metrics audience analytics. Preserve the strict earlier-quotation/shorter-draft checks. Final run 09a2301a-4ebe-59c8-942b-5dc118b3d2d4.
+
+
+## Final browser integration (2026-10-03)
+- Kawal `3f954f4` integrated into `atharva-new-branch`. Browser video/audio uploads and pasted/file scripts now run, report progress, support cancellation and import validated packages.
+- Final verification: 95 pipeline tests, 12 API tests, successful production web build; actual video, fresh audio and browser-script jobs completed. Details and run IDs: `docs/FINAL_INTEGRATION_2026-10-03.md`.
+- Script timings are cues or estimates, never measured speech. Visual AI, retention calibration, editorial accuracy benchmarks and Hindi/Hinglish qualification remain outstanding. The serial worker is for one local API process; cloud narrative and optional Jev context are disclosed in Welcome and Settings.

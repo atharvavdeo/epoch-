@@ -66,7 +66,7 @@ function ProjectCard({ p, pred, pinned, onPin }: { p: Project; pred?: Prediction
       <div className="pj-body">
         <div className="pj-label">Category</div>
         <div className="pj-value">{p.category.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())} <span className="faint">· {LANG[p.declared_language] ?? p.declared_language}</span></div>
-        <div className="pj-meter-head"><span className="pj-label">Estimated % viewed</span>{pred === null && run ? <span className="faint">Not analysed</span> : null}</div>
+        <div className="pj-meter-head"><span className="pj-label">Estimated % viewed · uncalibrated</span>{pred === null && run ? <span className="faint">Not analysed</span> : null}</div>
         <div className="pj-meter">
           <span className={`pj-track ${viewed === undefined ? "none" : ""}`}>{viewed !== undefined && <span className="pj-fill" style={{ width: `${Math.min(100, viewed)}%` }} />}</span>
           <b className="num">{viewed !== undefined ? `${viewed.toFixed(0)}%` : "—"}</b>

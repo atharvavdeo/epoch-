@@ -46,6 +46,7 @@ export default function Settings() {
                 {" "}<span className="faint">{s.cerebras.base_url} · model {s.cerebras.model ?? "auto (probe)"}</span>
                 <div className="faint" style={{ fontSize: 13 }}>Set CEREBRAS_API_KEY in the git-ignored .env file. The key is never shown or stored here.</div></span>
               <span className="muted">Sent to Cerebras</span><span style={{ fontSize: 14 }}>{s.sent_to_cerebras}</span>
+              <span className="muted">Jev / TypeSafe</span><span style={{ fontSize: 14 }}>Optional cloud editorial second opinion. When TYPESAFE_API_KEY is configured, the title, bounded transcript passages and your editorial question are sent to TypeSafe. Video, audio and frames are not sent. Keys stay in the git-ignored .env file.</span>
               <span className="muted">ASR CPU threads</span><span>{s.asr_threads} <span className="faint">(EPOCH_ASR_THREADS in .env)</span></span>
               <span className="muted">Local models</span>
               <span>{s.models.map((m) => <div key={m.role} style={{ fontSize: 13 }}>

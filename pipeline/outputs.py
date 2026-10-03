@@ -59,7 +59,7 @@ def export_outputs(ws, source: dict) -> Path:
     lines = [f"Video: {source['original_name']}", f"Title: {source['project']['title']}",
              f"Category: {source['project']['category']}  Language: {source['project']['declared_language']}",
              f"SHA-256: {source['sha256']}", f"Workspace: {ws.root}", "", "Stage status:"]
-    stages = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual",
+    stages = ["script", "probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job", "visual",
               "embed", "narrative", "predict", "voice", "jev", "score", "export"]
     recs = {n: ws.current(n) for n in stages}
     for n in stages:
@@ -112,8 +112,9 @@ def export_outputs(ws, source: dict) -> Path:
         _csv(out / "06_speech_regions.csv", ["start", "end", "duration_s"],
              [[ts(v["start_ms"]), ts(v["end_ms"]), round((v["end_ms"] - v["start_ms"]) / 1000, 2)] for v in vad["speech"]])
         lines.append(f"Speech present: {100 * vad['speech_fraction']:.1f}% of audio")
-    if recs["align"]:
-        t = read_json(recs["align"].path("transcript.json"))
+    tx = recs["script"] if source.get("kind") == "script" else recs["align"]
+    if tx:
+        t = read_json(tx.path("transcript.json"))
         write_text(out / "07_transcript.txt", "\n".join(
             f"[{ts(s['interval']['start_ms'])} - {ts(s['interval']['end_ms'])}] ({s['language']}, {s['precision']}) {s['text']}"
             for s in t["segments"]) + "\n")

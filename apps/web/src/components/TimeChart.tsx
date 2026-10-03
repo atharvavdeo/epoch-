@@ -98,8 +98,8 @@ export function TimeChart({ duration, height = 240, yMin, yMax, yTicks = 4, yFmt
 }
 
 /** The single honesty marker on estimated charts; the full note lives in the tooltip. */
-export function EstimateBadge({ label = "Estimate" }: { label?: string }) {
-  return <span className="badge-est" tabIndex={0} title="Estimated from the transcript and media, not your real audience"
+export function EstimateBadge({ label = "Uncalibrated estimate" }: { label?: string }) {
+  return <span className="badge-est" tabIndex={0} title="Assumption-driven scenario from available transcript/media; not measured audience retention"
     aria-label={`${label}: estimated from the transcript and media, not your real audience`}>{label}</span>;
 }
 

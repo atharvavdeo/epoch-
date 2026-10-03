@@ -1,6 +1,8 @@
 # HANDOFF — Epoch (PS5 Retention Predictor)
 
-**Mac continuation, 2026-10-03:** main was pulled to `320af3a`; existing planning edits were retained. Real run `5a80ca3b-788c-551f-bb5f-0a4cc2fc546b` (asset `3dfd563a2bbae40c`) is imported and served at port 8765. English Whisper/alignment, OCR, embeddings, live Cerebras, prediction, scoring and export succeeded. The website exposes 462 immutable run files through Outputs, with exact original package downloads. Visual AI remains uninspected. Local code changes are uncommitted and unpushed.
+**Current final integration:** Kawal commit `3f954f4` was fast-forwarded into `atharva-new-branch`; the upload API, serial analysis worker and script path were completed. Final checks: 95 pipeline tests, 12 API tests and a successful production web build. Real video upload, fresh 40-second audio and browser-submitted script jobs completed and imported. See [docs/FINAL_INTEGRATION_2026-10-03.md](docs/FINAL_INTEGRATION_2026-10-03.md). The following earlier snapshots are historical and are superseded by that report.
+
+**Earlier Mac continuation, 2026-10-03:** main was pulled to `320af3a`; existing planning edits were retained. Real run `5a80ca3b-788c-551f-bb5f-0a4cc2fc546b` (asset `3dfd563a2bbae40c`) is imported and served at port 8765. English Whisper/alignment, OCR, embeddings, live Cerebras, prediction, scoring and export succeeded. The website exposes 462 immutable run files through Outputs, with exact original package downloads. Visual AI remains uninspected. Local code changes are uncommitted and unpushed.
 
 Rewritten 2026-10-03 on the Windows laptop where everything was built and run. The Mac move was cancelled; macOS setup instructions are in [README §3](README.md#3-run-it-on-a-mac-apple-silicon) (untested on a Mac).
 
@@ -22,14 +24,14 @@ Epoch takes a 5–15 minute video and runs locally:
 - a **rule-based, uncalibrated text retention model**
 - transcript relations, and a grounded assistant with retrieval
 
-The package is imported into a local website (FastAPI + React) with a Review workspace, edit plan, evaluation and settings. **Nothing has been compared with real audience retention.** Visual analysis is on hold (1/4 valid VLM answers). OCR is not run. Hindi/Hinglish has never been run end to end. Script-only analysis has no backend.
+The package is imported into a local website (FastAPI + React) with a Review workspace, edit plan, evaluation and settings. **Nothing has been compared with real audience retention.** Visual analysis is on hold (1/4 valid VLM answers). OCR passed the earlier Mac video run; it remains opt-in. Hindi/Hinglish has never been run end to end. Script-only analysis now runs through browser paste/upload with explicitly estimated or cue timings.
 
 ---
 
 ## 1. Owner rules (non-negotiable)
 - **Pushing:** push to GitHub only when the owner asks. Commits are ≤100 words, past tense, human voice, author **Kawaljeet Singh Bharaj <kawaljeetsinghbharaj.jsb@gmail.com>**. **Never a Co-Authored-By line.**
 - **The key:** the Cerebras key lives only in the git-ignored `.env`. Never echo, log, commit or package it.
-- **Where things run:** everything runs locally except the VLM (Colab only). Never run Qwen on the laptop.
+- **Where things run:** extraction and measurements run locally; Cerebras and optional Jev / TypeSafe receive bounded text context. VLM inference is Colab only. Never run Qwen on the laptop.
 - **One heavy CPU job at a time;** the laptop crashed when OCR and ASR ran together.
 - **Every edit suggestion must keep content:** no dropped points, examples, questions, transitions or announced replays (E-01, E-02).
 - **Honesty:** say plainly what is untested. Never call something done unless it ran end to end.
@@ -67,7 +69,7 @@ The package is imported into a local website (FastAPI + React) with a Review wor
   - runs, transcript (+ `.srt/.vtt/.txt`), timeline, issues, evidence, review
   - scenarios, prediction (GET + recompute), relations, search, chat
   - hypothetical, evaluation, settings, pipeline state, local import
-- **Website** (`apps/web/`): Projects, New analysis (4 steps), Review (At this moment, timeline, priority cards, 5 tabs, drawers), Edit plan, Evaluation, Settings. Every element is described in README §6.
+- **Website** (`apps/web/`): Projects, New analysis (3 steps), Review (At this moment, timeline, priority cards, 5 tabs, drawers), Edit plan, Evaluation, Settings. Every element is described in README §6.
 - **Tests:** media env 49 passing (relations, predict, hypothetical, contracts, scoring golden, pipeline e2e, narrative units); api env 3 passing. Retrieval smoke test: `scripts/rag_eval.py` (hit@3 10/10 on 10 questions).
 
 ### 2.3 Git
@@ -103,7 +105,7 @@ The package is imported into a local website (FastAPI + React) with a Review wor
    - per-run punctuation coverage, low-confidence segments, alignment rate
    - pass names from the title to Whisper `hotwords` ("MrBeast")
    - add a word-error-rate script for when reference subtitles exist
-4. **Script-only backend:**
+4. **Script-only backend: completed in the final integration; the following original design items are historical:**
    - `POST /projects/{id}/script` (save the text)
    - an `analyze-script` command
    - a `script` stage producing `transcript.json` (source user, segment precision, no words)

@@ -7,8 +7,8 @@ export const introSeen = () => { try { return localStorage.getItem(KEY) === "1";
 export const setIntroSeen = (v: boolean) => { try { if (v) localStorage.setItem(KEY, "1"); else localStorage.removeItem(KEY); } catch { /* storage blocked */ } };
 
 const STEPS: { icon: ReactNode; title: string; line: string }[] = [
-  { icon: <IconUpload size={30} />, title: "Upload a video, voice note or script", line: "Everything runs on this computer." },
-  { icon: <IconChart size={30} />, title: "We find where viewers may drop and why", line: "Each moment links to the exact words, sound or shot." },
+  { icon: <IconUpload size={30} />, title: "Upload a video, voice note or script", line: "Media processing stays local. Narrative and assistant checks send transcript excerpts to configured cloud models." },
+  { icon: <IconChart size={30} />, title: "Review where viewers may drop and why", line: "Uncalibrated scenarios link to evidence. They describe assumptions, not measured audience retention." },
   { icon: <IconList size={30} />, title: "Fix it with an edit plan", line: "Keep what works, change what doesn't." },
 ];
 

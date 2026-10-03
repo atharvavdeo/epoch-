@@ -13,7 +13,7 @@ from __future__ import annotations
 from pipeline.media import stages as media
 from pipeline.orchestration.stage import run_stage
 
-VIDEO_STAGE_ORDER = ["probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job",
+VIDEO_STAGE_ORDER = ["script", "probe", "proxy", "audio", "video_scan", "frames", "asr", "align", "ocr", "visual_job",
                      "visual", "embed", "narrative", "predict", "voice", "jev", "score", "export"]
 # OCR is opt-in (D18): PaddleOCR on Windows CPU was ~3 s/frame and destabilised the laptop.
 # Without it the text track is reported as unknown, never as clean.
@@ -98,13 +98,14 @@ def embed_spec_and_fn(source: dict):
     from pipeline.local_models import manifest, model_fingerprint, offline_env
     from pipeline.orchestration.stage import StageResult, StageSpec
 
-    spec = StageSpec(name="embed", version="3", env="asr", deps=("align",),
+    tx = "script" if source.get("kind") == "script" else "align"
+    spec = StageSpec(name="embed", version="4", env="asr", deps=(tx,),
                      config={"chunk_words": [100, 200], "top_k": 3, "min_cos": 0.85, "prefix": "passage: "},
                      extra={"model": model_fingerprint("embed"), "title": source["project"]["title"]})
 
     def fn(ctx):
         res = ctx.run_subprocess("pipeline.reasoning.embed_stage", {
-            "transcript": str(ctx.dep("align").path("transcript.json")),
+            "transcript": str(ctx.dep(tx).path("transcript.json")),
             "model_dir": manifest("embed")["snapshot_dir"], "threads": 4,
             "title": source["project"]["title"]}, extra_env=offline_env())
         return StageResult(res["status"], res.get("summary", {}))
@@ -130,7 +131,7 @@ def run_finish(ws, source: dict, *, force: set[str] | None = None) -> bool:
     from pipeline.scoring.stage import score_spec, score_stage
 
     force = force or set()
-    if ws.current("visual") is None:
+    if source.get("kind") != "script" and ws.current("visual") is None:
         print("[note] no Colab visual result attached: visual track will be UNKNOWN and the package partial")
     ok = True
     from pipeline.predict.stage import predict_spec, predict_stage
@@ -139,8 +140,10 @@ def run_finish(ws, source: dict, *, force: set[str] | None = None) -> bool:
     from pipeline.reasoning.jev import jev_spec, jev_stage
 
     steps = [embed_spec_and_fn(source), (narrative_spec(source), narrative_stage(source)),
-             (predict_spec(source), predict_stage(source)), (voice_spec(), voice_stage(source)),
-             (jev_spec(source), jev_stage(source)), (score_spec(), score_stage(source)),
+             (predict_spec(source), predict_stage(source))]
+    if source.get("kind") != "script":
+        steps.append((voice_spec(), voice_stage(source)))
+    steps += [(jev_spec(source), jev_stage(source)), (score_spec(source), score_stage(source)),
              (export_spec(source), export_stage(source, ws))]
     for spec, fn in steps:
         rec = run_stage(ws, spec, fn, force=spec.name in force)

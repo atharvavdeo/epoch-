@@ -136,12 +136,13 @@ def explain_decisions(result, chunks):
 
 
 def jev_spec(source):
-    return StageSpec(name='jev',version='5',deps=('align',),config={'model':'jev-1.13.0','max_batch_passages':12,'confidence_threshold':.65,'max_calls':8},extra={'title':source['project']['title']})
+    tx = 'script' if source.get('kind') == 'script' else 'align'
+    return StageSpec(name='jev',version='6',deps=(tx,),config={'model':'jev-1.13.0','max_batch_passages':12,'confidence_threshold':.65,'max_calls':8},extra={'title':source['project']['title']})
 
 
 def jev_stage(source):
     def fn(ctx):
-        chunks=make_chunks(read_json(ctx.dep('align').path('transcript.json'))['segments'])
+        chunks=make_chunks(read_json(ctx.dep('script' if source.get('kind') == 'script' else 'align').path('transcript.json'))['segments'])
         result=explain_decisions(judge_chunks(source['project']['title'],chunks),chunks)
         write_json(ctx.out/'jev.json',result)
         return StageResult('complete' if result['status']=='complete' else 'partial',{'decisions':len(result['decisions']),'calls':result.get('calls',0)})

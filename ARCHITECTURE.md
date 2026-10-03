@@ -19,7 +19,9 @@ The authoritative specifications live in `PLANNER/` (PRD, TRD, Schema, RETENTION
  attach-visual ◄────────────────────────────────────────────────────────────────────────────────────┘
       │ (re-validates every record; rejects FAKE/unpinned models)
       ▼
- finish ─► embed (asr env) ─► narrative (Cerebras, strict JSON) ─► score ─► export ─► <asset>.retention.zip
+ finish ─► embed ─► narrative (Cerebras) ─► predict ─► voice* ─► jev ─► score ─► export
+ browser upload ─► durable serial job ─► media stages OR script ─► same finish stages
+ * voice runs only when source media exists; Jev is an optional TypeSafe cloud second opinion.
                                                                                          │
  outputs ─► outputs/<slug>_<sha8>/ (CSV/TXT/JSON, proxy, colab zip, package copy)         │
                                                                                          ▼
@@ -151,7 +153,7 @@ Planner decisions D01–D15 are in `PLANNER/DesignDecisions.md`, which also carr
 
 ## 10. Known open items
 
-* Script-only (no video) mode: provisional in P1, not built.
+* Script-only mode is implemented through browser uploads/paste; validation of editorial quality remains open.
 * RapidOCR swap for D18.
 * Frames-stage hash mismatch seen once after a crash: the cache verifier rebuilt the stage correctly, but the root cause is unexplained (suspect: a partial write before the crash, then a stale `current.json`).
 
@@ -173,3 +175,18 @@ Chat retrieval now fuses offline multilingual E5 and BM25 over overlapping timed
 Review defaults to Overview, with Text, Voice and Audio deep dives, cumulative assumed watch seconds, retention/baseline/sensitivity, lexical-risk, rate/pitch/variation/voicing, RMS and LUFS charts. Charts seek the player, preserve unknown gaps, and label assumptions. Text supports a selected-passage Jev question. Outputs includes the new diagnostics and readable reports; final run has 466 artifacts. API compatibility handles fractional timestamps and optional old-package diagnostics.
 
 Validation: 67 media/pipeline tests plus six API tests passed; production frontend build and package self-validation passed; live API, semantic chat, selected Jev and browser chart rendering checked. Local server stays on port 8765. User PLANNER edits are preserved. Nothing committed or pushed. Retention calibration, editorial accuracy evaluation and visual Colab analysis remain outstanding.
+
+
+## Final browser integration (2026-10-03)
+
+`apps/api/analysis.py` implements `/api/v1/analyses`, `/analyses/text`, `/jobs` and job cancellation before SPA routing. Sources and atomic job state persist under the local app data directory. A single queue launches `pipeline.analysis_job` in the media environment at reduced priority, with six ASR threads. Cancellation kills the child process group; shutdown marks jobs interrupted and stops workers. Completed output must pass the package validator and match the requested project before immutable import.
+
+Scripts flow through `pipeline/script/stage.py` into embeddings, narrative, prediction, optional Jev, scoring and export. TXT/MD timing is explicitly estimated at 150 WPM; SRT/VTT cues are retained, with no invented word alignment. Export v9 produces a validated script asset with text coverage and unknown unmeasured modalities. Audio wraps a blank playback picture, omits video scans and frames, and feeds measured waveform/speech stages into the shared finish flow. Identical media in separate projects receives a project-scoped workspace to avoid importing a package into the wrong project.
+
+| ID | Decision | Reason / limit |
+|---|---|---|
+| J-01 | One durable, serial browser analysis worker; no silent restart of interrupted jobs. | Bounds CPU pressure and avoids repeating cloud calls without a retry action. Designed for one local API process. |
+| J-02 | Validate the output package and project identity before import. | The frontend cannot turn a partial or mismatched worker result into persistent run data. |
+| J-03 | Script-only results retain cue/estimated timing and exclude measured media features. | Text does not provide speech rate, voice, waveform or shot evidence. |
+
+Current evidence, run IDs and limits: [final verification report](docs/FINAL_INTEGRATION_2026-10-03.md).
