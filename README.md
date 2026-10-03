@@ -732,6 +732,49 @@ Historical planner decisions D01–D18 and implementation changes are preserved 
 
 Additional absent product capabilities: hosted authentication, team collaboration, billing, direct public-URL ingestion in the app, background music/sound separation, video editing/rendering, guaranteed Windows qualification of the new browser worker, universal genre support, retention uplift guarantees and complete Hindi semantic-rule coverage. Hindi recognition/alignment is separate from English-heavy lexical relation rules. Fresh short/trailer tests exercise transport and inference paths; they are outside the original 5–15 minute educational/tech focus and do not qualify those genres scientifically.
 
+## Data sources and local analysis files
+
+This inventory records the media, model sources and datasets found in the local Epoch run records and caches before cleanup. Original videos, audio, transcripts, model weights, databases and generated outputs are not included in this GitHub repository. Repeated analyses of the same media are listed once below. Source URLs are included only when the local record preserved them.
+
+### Video and audio inputs
+
+| Local title / file | Source recorded in Epoch | Notes |
+|---|---|---|
+| *Ontology vs Metadata: What’s the Difference?* — `ve7AA01vplE.mp4` | [TalkIT Global video](https://youtu.be/ve7AA01vplE) | English educational video; appeared in several analysis runs. |
+| *Jio New Device* — `y7xV8g73n9U.mp4` | No source URL saved in the local project metadata. | Hindi tech-review short; the same content appears under two project titles. |
+| *Prahaar — Official Trailer* — `qGbvEhKhaWA.mp4` | No source URL saved in the local project metadata. | Hindi trailer; two project titles refer to the same source file. |
+| *Cameron Norrie SHOCKS World No. 1 Carlos Alcaraz! Paris 2025 Highlights* — original file ending in `Tennis TV (1080p, h264, youtube).mp4` | No source URL saved in the local project metadata. | English sports highlight clip; the project title was `kj`. |
+| `epoch-final-audio.mkv` | Local audio-upload integration test; no external source recorded. | 40-second audio test wrapped in a small video container for playback compatibility. |
+
+### Script inputs and generated test media
+
+- **Browser flow: three steps for checking catalogue metadata** — pasted script, estimated at 150 words per minute.
+- **Final integration: how metadata makes a catalogue searchable** — pasted script, estimated at 150 words per minute.
+- **Retention test script** — test-only script fixture.
+- **Retention test fixture** — generated `long.mp4` used in an end-to-end test, not a sourced video.
+- **Generated media fixtures** — `basic.mp4`, `long.mp4`, `noaudio.mp4`, `rotated.mp4` and `vfr.mp4`, generated for deterministic media-pipeline tests.
+
+### Model and language-resource sources
+
+The local model manifest recorded these pinned Hugging Face snapshots. They were downloaded under the Epoch data directory and are not committed here:
+
+| Use | Model source | Pinned revision |
+|---|---|---|
+| Speech recognition | [`Systran/faster-whisper-large-v3`](https://huggingface.co/Systran/faster-whisper-large-v3) | `edaa852ec7e145841d8ffdb056a99866b5f0a478` |
+| English word alignment | [`facebook/wav2vec2-base-960h`](https://huggingface.co/facebook/wav2vec2-base-960h) | `22aad52d435eb6dbaf354bdad9b0da84ce7d6156` |
+| Hindi word alignment | [`theainerd/Wav2Vec2-large-xlsr-hindi`](https://huggingface.co/theainerd/Wav2Vec2-large-xlsr-hindi) | `062f7f566e2671336992b011dcb9387cd3cffe5e` |
+| Multilingual passage embeddings | [`intfloat/multilingual-e5-base`](https://huggingface.co/intfloat/multilingual-e5-base) | `d128750597153bb5987e10b1c3493a34e5a4502a` |
+| Optional OCR | PaddleOCR PP-OCRv5 mobile detector, English recognizer and Devanagari recognizer | Model files were present locally; the local Paddle manifest did not preserve a source revision. |
+| Sentence segmentation | NLTK `punkt_tab` language resource | Downloaded for WhisperX sentence splitting; no separate version pin was recorded. |
+
+The removed shared Hugging Face cache also contained snapshots for `mlx-community/Qwen3-0.6B-4bit` and `jingang/TabICL`, PaddlePaddle PP-OCRv5 model repositories, and the `howard-hou/OCR-VQA` dataset. These were cache contents observed on this Mac; the local records do not establish that Qwen3 or TabICL was used by Epoch. The configured Qwen3.5 9B/27B visual profiles run in the optional Colab workflow; their weights were not found in the Epoch Mac model directory.
+
+The removed `uv` cache contained Python package wheels, source distributions, build artifacts and metadata, rather than Epoch media or model checkpoints. Environment lock files remain in the repository so dependencies can be reinstalled.
+
+### Local-only results and privacy boundary
+
+The local `epoch-data` directory held downloaded model snapshots, original and uploaded media, SQLite project/run state, transcripts, sampled frames, audio derivatives, cached pipeline stages and exported analysis packages. The checkout also held ignored `outputs/`, virtual environments and generated test fixtures. These files were excluded from Git; this section is a provenance inventory, not a copy of those artifacts. No creator-owned audience-retention dataset was used to train or calibrate the retention scenario.
+
 ## Run locally
 
 Requires Python 3.11, uv, Node 20+ and room for pinned model snapshots/work artifacts. macOS was exercised; original hashed locks target Windows, and platform-specific Mac locks are selected by stage provenance when present.
