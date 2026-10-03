@@ -296,7 +296,7 @@ def salvage_decisions(obj: dict | None, batch: list[tuple[str, dict]]) -> dict:
 # --------------------------------------------------------------------- stage
 
 def narrative_spec(source: dict) -> StageSpec:
-    return StageSpec(name="narrative", version="10", deps=("align", "embed", "probe", "video_scan", "audio"),
+    return StageSpec(name="narrative", version="11", deps=("align", "embed", "probe", "video_scan", "audio"),
                      optional_deps=("asr", "visual"),
                      config={"max_calls": MAX_CALLS, "per_call": PER_CALL, "char_budget": INPUT_CHAR_BUDGET,
                              "thresholds": {"intro_ms": 20000, "payoff_ms": 60000, "pause_ms": 2000, "static_shot_ms": 15000,

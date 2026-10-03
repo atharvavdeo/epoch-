@@ -81,6 +81,17 @@ def run_local_until(ws, source: dict, *, until: str, allow_out_of_scope: bool = 
     return ok
 
 
+def run_transcribe(ws, source: dict, *, allow_out_of_scope: bool = False, force: set[str] | None = None) -> bool:
+    """Audio -> transcript only: probe, audio, ASR, alignment. No video stages, no Colab, no LLM."""
+    force = force or set()
+    for name in ("probe", "audio", "asr", "align"):
+        spec, fn = _step(name, source, allow_out_of_scope)
+        rec = run_stage(ws, spec, fn, force=name in force)
+        if rec.status in ("failed", "skipped"):
+            return False
+    return True
+
+
 # ------------------------------------------------------------ after Colab
 
 def embed_spec_and_fn(source: dict):

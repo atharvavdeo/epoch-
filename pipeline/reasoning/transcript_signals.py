@@ -106,3 +106,22 @@ def snap_quote(quote: str, text: str, min_ratio: float = 0.85) -> str | None:
             if r > best_r:
                 best, best_r = " ".join(tw[i:i + size]), r
     return best if best_r >= min_ratio else None
+
+
+# A replay the speaker announces ("see if you can spot them in the hook to this video", "watch it again") is a
+# quoted example, not padding: cutting it removes the material the next passage analyses (E-02).
+REPLAY_CUES = re.compile(
+    r"\b(spot (them|it|this|that)|in the (hook|intro|opening) (to|of) this video|watch (this|it|that) again"
+    r"|let'?s (watch|listen|replay|rewatch|look back)|here'?s (the|my) (hook|intro|clip|opening)"
+    r"|listen (to (it|this|that) )?again|play(ing)? (it|that|this) (back|again)|rewind|here it is again|one more time)\b")
+
+
+def announced_replay(segments: list[dict], start_ms: int, before_ms: int = 12_000, after_ms: int = 3_000) -> str | None:
+    """Return the cue sentence if the speaker announces a replay just before (or as) a repeated passage starts."""
+    for x in segments:
+        a, b = x["interval"]["start_ms"], x["interval"]["end_ms"]
+        if b >= start_ms - before_ms and a <= start_ms + after_ms:
+            m = REPLAY_CUES.search(_norm(x["text"]))
+            if m:
+                return x["text"]
+    return None

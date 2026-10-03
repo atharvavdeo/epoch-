@@ -40,6 +40,19 @@ def _csv(path: Path, header: list[str], rows: list[list]) -> None:
         print(f"  ! {path.name} is open in another program; not refreshed")
 
 
+def write_subtitles(out: Path, segments: list[dict]) -> None:
+    """transcript.srt / transcript.vtt next to the readable outputs: the audio -> transcript feature on its own."""
+    def stamp(ms: int, sep: str) -> str:
+        return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d}{sep}{ms % 1000:03d}"
+    segs = sorted(segments, key=lambda x: x["interval"]["start_ms"])
+    nl = "\n"
+    write_text(out / "transcript.srt", (nl + nl).join(
+        f"{i + 1}{nl}{stamp(x['interval']['start_ms'], ',')} --> {stamp(x['interval']['end_ms'], ',')}{nl}{x['text']}"
+        for i, x in enumerate(segs)) + nl)
+    write_text(out / "transcript.vtt", "WEBVTT" + nl + nl + (nl + nl).join(
+        f"{stamp(x['interval']['start_ms'], '.')} --> {stamp(x['interval']['end_ms'], '.')}{nl}{x['text']}" for x in segs) + nl)
+
+
 def export_outputs(ws, source: dict) -> Path:
     out = OUTPUTS_ROOT / slug(source)
     out.mkdir(parents=True, exist_ok=True)
@@ -100,6 +113,7 @@ def export_outputs(ws, source: dict) -> Path:
         write_text(out / "07_transcript.txt", "\n".join(
             f"[{ts(s['interval']['start_ms'])} - {ts(s['interval']['end_ms'])}] ({s['language']}, {s['precision']}) {s['text']}"
             for s in t["segments"]) + "\n")
+        write_subtitles(out, t["segments"])
         dropped = t.get("dropped_segments", [])
         write_json(out / "07_transcript_words.json", {"segments": t["segments"], "words": t["words"], "stats": t["stats"],
                                                       "dropped_segments": dropped})

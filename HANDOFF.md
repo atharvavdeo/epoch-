@@ -44,6 +44,21 @@ Written 2026-10-03 at commit `db430eb` (plus this file), on the Windows laptop w
 > - Imported as run `1cd55a87` and verified in the browser through the DOM (no console errors).
 > - **Not validated:** no real audience-retention curve has been compared yet. Weights are priors. The first validation step is to load YouTube Studio retention CSVs for a few videos and fit or check the weights.
 
+> **Added later the same day (pushed to main):**
+> - Hand validation of every generated suggestion; README has the audit table. One destructive cut was removed (E-02), the setup penalty was moved off the hook (M-03), and clipping claims were toned down (N-07).
+> - Transcript relations tab (T-02).
+> - Grounded assistant with verified quotes and edit warnings (C-02).
+> - `pipeline.cli transcribe` for audio/video → SRT/VTT/TXT (A-02), and transcript downloads on the Review page.
+> - Design guidelines v2: exact tokens, coral = the one action, amber = selection, amber-underline tabs, 44 px targets, amber focus ring, and the chat restyled as a side assistant.
+> - Current imported run: `cc4af68b` (58.9% predicted, band 57.0–60.5%).
+> - **Still open:**
+>   - the Review layout from the guidelines ("At this moment" panel, three priority findings, evidence drawer)
+>   - the onboarding stepper
+>   - the shots inspector tabs
+>   - the script-only backend
+>   - punctuation restoration for unpunctuated ASR
+>   - checking the predictor against real retention CSVs
+
 Read §0 and §3 before touching anything.
 
 Reading order for the new machine:

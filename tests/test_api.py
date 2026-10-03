@@ -99,3 +99,13 @@ def test_corrupt_and_malicious_packages_are_rejected_atomically(client):
     assert tamper["status"] == "rejected" and tamper["errors"][0]["code"] == "hash_mismatch"
     assert client.get("/api/v1/projects").json()["items"] == before  # nothing partially committed
     assert client.post("/api/v1/imports", files={"file": ("x.txt", io.BytesIO(b"hi"), "text/plain")}).status_code == 415
+
+
+def test_transcript_export_and_relations(client):
+    run_id = client.get("/api/v1/projects").json()["items"][0]["runs"][0]["run_id"]
+    srt = client.get(f"/api/v1/runs/{run_id}/transcript.srt")
+    assert srt.status_code == 200 and " --> " in srt.text and srt.text.startswith("1\n")
+    assert client.get(f"/api/v1/runs/{run_id}/transcript.vtt").text.startswith("WEBVTT")
+    assert client.get(f"/api/v1/runs/{run_id}/transcript.doc").status_code == 404
+    rel = client.get(f"/api/v1/runs/{run_id}/relations").json()
+    assert {"questions", "abstract_stretches", "cognitive_load", "rhythm", "summary"} <= set(rel)

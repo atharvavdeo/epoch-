@@ -40,7 +40,7 @@ export function PredictionView({ runId, pred, onPred }: { runId: string; pred: P
 
   return (
     <div className="pred">
-      <div className="section-title" style={{ marginBottom: 2 }}><h3>{pred.label}</h3></div>
+      <div className="section-title" style={{ marginBottom: 2 }}><h3>Predicted retention</h3><span className="pill uncal">Uncalibrated · rule-based text model</span></div>
       <p className="muted" style={{ margin: "0 0 12px", fontSize: 14 }}>Built from what is said and how: setup length, hook, title payoff, repetition,
         new information, pace, fillers, quiet gaps, CTAs. The weights are reasoned priors, <b>not fitted to audience data</b>; the band shows
         how much the answer moves if every weight is half or one-and-a-half times as strong.</p>

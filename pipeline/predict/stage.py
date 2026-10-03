@@ -16,7 +16,7 @@ from pipeline.predict.model import MODEL_VERSION, WEIGHTS, Anchors, drop_moments
 def predict_spec(source: dict) -> StageSpec:
     tx = "script" if source.get("kind") == "script" else "align"
     deps = (tx,) if tx == "script" else (tx, "probe")
-    return StageSpec(name="predict", version="1", deps=deps, optional_deps=("narrative", "audio", "asr"),
+    return StageSpec(name="predict", version="2", deps=deps, optional_deps=("narrative", "audio", "asr"),
                      config={"model": MODEL_VERSION, "weights": {k: v[0] for k, v in WEIGHTS.items()},
                              "anchors": {"retention_at_30s": 0.80, "retention_at_end": 0.45}, "band": "weights x0.5..x1.5"},
                      extra={"title": source["project"]["title"]})

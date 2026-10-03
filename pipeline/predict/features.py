@@ -12,7 +12,7 @@ import re
 import statistics
 
 from pipeline.reasoning.candidates import _STOP, _content_trigrams, find_pauses
-from pipeline.reasoning.transcript_signals import EN_FILLERS
+from pipeline.reasoning.transcript_signals import EN_FILLERS, announced_replay
 
 CONCRETE = re.compile(r"\d|\b(for example|for instance|such as|let's say|imagine|like when)\b", re.I)
 
@@ -57,7 +57,7 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
         j = i
         while j < len(segs) and rep[j]:
             j += 1
-        if j - i >= 2:
+        if j - i >= 2 and announced_replay(segs, segs[i]["interval"]["start_ms"]) is None:
             put(segs[i]["interval"]["start_ms"], segs[j - 1]["interval"]["end_ms"], "repetition", 1.0)
         i = max(j, i + 1)
     # windowed novelty: share of content words in a 20 s window never heard before that window. Per-sentence
@@ -142,8 +142,8 @@ def build_features(T_ms: int, segments: list[dict], words: list[dict], structure
     # --- structure from the validated narrative pass
     st = structure or {}
     sub = st.get("first_substance_ms")
-    if sub:
-        put(0, sub, "setup_before_substance", 1.0)
+    if sub:  # the hook itself is not setup: the setup clock starts once the hook has been delivered
+        put(min(sub, st.get("hook_end_ms") or 0), sub, "setup_before_substance", 1.0)
     hook = st.get("hook_ms")
     put(0, min(30_000, hook if hook is not None else 30_000), "no_hook_yet", 1.0)
     for p in st.get("promises", []):

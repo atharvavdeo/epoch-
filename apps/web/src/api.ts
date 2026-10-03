@@ -69,6 +69,23 @@ export class ApiError extends Error {
   constructor(public code: string, message: string, public action?: string | null) { super(message); }
 }
 
+export type SentenceRef = { start_ms: number; end_ms: number; text: string; punctuated: boolean };
+export type QA = { question: SentenceRef; answer: SentenceRef | null; shared_words: string[]; gap_ms: number | null;
+  kind: "immediate" | "short" | "open_loop" | "framing" | "no_callback"; rhetorical_form: boolean };
+export type Relations = { method: string; sentences: number; unpunctuated_ms: number; questions: QA[];
+  concreteness: { start_ms: number; end_ms: number; score: number }[];
+  abstract_stretches: { start_ms: number; end_ms: number; sentences: number; abstract_terms: number; quote: string }[];
+  term_dependencies: { term: string; used_at: SentenceRef; explained_at: SentenceRef; gap_ms: number }[];
+  cognitive_load: { long_sentences: (SentenceRef & { words: number })[]; median_new_terms_per_min: number;
+    windows: { start_ms: number; end_ms: number; new_terms: number; mean_sentence_words: number; sentences: number; load: string }[] };
+  rhythm: { windows: { start_ms: number; end_ms: number; sentences: number; variation: number | null }[];
+    flat: { start_ms: number; end_ms: number }[]; sections: { label: string; start_ms: number; end_ms: number; duration_s: number }[] };
+  summary: { questions: number; answered_immediately: number; open_loops: number; no_callback: number; concrete_share: number } };
+export type ChatMsg = { role: "user" | "assistant"; content: string };
+export type ChatAnswer = { answer: string; quotes: { text: string; verified: boolean; start_ms: number | null }[];
+  edit_warnings: string[]; citations: { start_ms: number; end_ms: number; why: string }[]; dropped_citations: number;
+  model: string; grounding: string };
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`/api/v1${path}`, init);
   if (!r.ok) {
@@ -113,6 +130,10 @@ export const api = {
     assumed_resolved_issue_ids: string[] }) => call<Hypothetical>(`/runs/${run}/hypothetical`, json("POST", a)),
   evaluation: () => call<Evaluation>("/evaluation"),
   settings: () => call<Settings>("/settings"),
+  relations: (run: string) => call<Relations>(`/runs/${run}/relations`),
+  chat: (run: string, b: { message: string; history: ChatMsg[]; selection: Interval | null }) =>
+    call<ChatAnswer>(`/runs/${run}/chat`, json("POST", b)),
+  transcriptUrl: (run: string, f: "srt" | "vtt" | "txt") => `/api/v1/runs/${run}/transcript.${f}`,
   prediction: (run: string) => call<Prediction>(`/runs/${run}/prediction`),
   repredict: (run: string, a: { retention_at_30s: number; retention_at_end: number; acknowledged: boolean }) =>
     call<Prediction>(`/runs/${run}/prediction`, json("POST", a)),

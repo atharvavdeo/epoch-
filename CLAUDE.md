@@ -28,6 +28,7 @@ PS5 Retention Predictor, Phase 1 (Diagnose). **Start with `HANDOFF.md`** (state,
 Rebuild the Colab notebook with `scripts/build_notebook.py`. Environments: `scripts/setup_envs.sh` (hashed uv locks, `UV_LINK_MODE=copy`).
 
 ## Gotchas
+- Bash heredocs mangle `` in regexes (it becomes a backspace). Write patch scripts with the Write tool.
 - Windows consoles are cp1252: the CLI reconfigures stdout to UTF-8. Keep it that way.
 - On Windows, close `mkstemp` fds before reopening or unlinking.
 - Excel locks CSVs: `outputs` skips locked files with a notice instead of failing.
@@ -43,5 +44,5 @@ Rebuild the Colab notebook with `scripts/build_notebook.py`. Environments: `scri
 - Test video: "How MrBeast Solved YouTube" (850 s), workspace `5234018afef0e99a` in `C:\Epoch\epoch-data\work`.
 - Media, ASR (217 segments, 41 min CPU) and alignment (207 segments after the loop guard, 2790/2790 words aligned) are done locally. Colab job: `5234018afef0e99a_8f1941e177e44a81.visualjob.zip`. The user runs it on Colab; the result comes back via `attach-visual`, then `finish`.
 - Narrative/score/export done (partial: visual + OCR missing). Imported run `270676b4` in the API at :8765 (`.claude/launch.json` at C:\Epoch). After the Colab result: `attach-visual`, then `finish`, then import the new package.
-- Text retention predictor v1 (`pipeline/predict/`, uncalibrated) runs in `finish`; imported run `1cd55a87` shows it.
-- Not built yet: script-only mode backend, RapidOCR, chat panel. Open question: the one-off frames hash mismatch after the crash.
+- Text retention predictor v1 (`pipeline/predict/`, uncalibrated) runs in `finish`; current imported run `cc4af68b`. Transcript relations, a grounded chat and `transcribe` exist (README lists every analytic).
+- Not built yet: script-only mode backend, RapidOCR, transcript correction, Review layout per design guidelines v2. Open question: the one-off frames hash mismatch after the crash.

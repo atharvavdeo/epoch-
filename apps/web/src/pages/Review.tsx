@@ -7,6 +7,8 @@ import { Dock } from "../components/Dock";
 import { FindingDetail, FindingsList, prioritise } from "../components/Issues";
 import { Player } from "../components/Player";
 import { PredictionView } from "../components/Prediction";
+import { ChatPanel } from "../components/Chat";
+import { RelationsView } from "../components/Relations";
 import { ShotsView } from "../components/Shots";
 import { Timeline } from "../components/Timeline";
 import { TranscriptPanel } from "../components/TranscriptPanel";
@@ -28,7 +30,9 @@ export default function Review() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const predQ = useQuery({ queryKey: ["prediction", runId], queryFn: () => api.prediction(runId), retry: false });
   const [userPred, setUserPred] = useState<Prediction | null>(null);
-  const [lower, setLower] = useState<"predicted" | "retention" | "risk" | "shots" | "provenance">("predicted");
+  const relQ = useQuery({ queryKey: ["relations", runId], queryFn: () => api.relations(runId) });
+  const [chatOpen, setChatOpen] = useState(false);
+  const [lower, setLower] = useState<"predicted" | "relations" | "retention" | "risk" | "shots" | "provenance">("predicted");
   const [userScenario, setUserScenario] = useState<Scenario | null>(null);
   const { focus, selectedIssue } = usePlayhead();
   const items = issues.data?.items ?? [];
@@ -81,6 +85,11 @@ export default function Review() {
         <div className="right">
           <span className={`pill ${r.package_kind === "analysis" ? "supported" : "amber"}`}>
             {r.package_kind === "analysis" ? "complete analysis" : visualPending ? "visual analysis incomplete" : "partial analysis"}</span>
+          <button onClick={() => setChatOpen((o) => !o)} aria-pressed={chatOpen}>Ask about this video</button>
+          <select aria-label="Download transcript" value="" onChange={(e) => { if (e.target.value) window.location.href = api.transcriptUrl(runId, e.target.value as "srt"); }}
+            style={{ width: "auto" }}>
+            <option value="">Transcript ↓</option><option value="srt">SRT subtitles</option><option value="vtt">WebVTT</option><option value="txt">Text with times</option>
+          </select>
           <button onClick={exportFindings}>Export findings</button>
           <Link to={`/runs/${runId}/plan`}><button>Edit plan</button></Link>
         </div>
@@ -131,13 +140,14 @@ export default function Review() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="tabs">
-          {(["predicted", "retention", "risk", "shots", "provenance"] as const).map((t) => (
+          {(["predicted", "relations", "retention", "risk", "shots", "provenance"] as const).map((t) => (
             <button key={t} className={lower === t ? "on" : ""} onClick={() => setLower(t)}>
-              {t === "predicted" ? "Predicted retention" : t === "retention" ? "Findings-based scenario" : t === "risk" ? "Risk by track"
+              {t === "predicted" ? "Predicted retention" : t === "relations" ? "Transcript relations" : t === "retention" ? "Findings-based scenario" : t === "risk" ? "Risk by track"
                 : t === "shots" ? "Shots" : "What was analysed"}</button>))}
         </div>
         {lower === "predicted" && (pred ? <PredictionView runId={runId} pred={pred} onPred={setUserPred} />
           : <p className="muted">{predQ.isLoading ? "Loading prediction…" : "This package was built before the text retention model. Re-run finish and import the new package."}</p>)}
+        {lower === "relations" && (relQ.data ? <RelationsView rel={relQ.data} /> : <p className="muted">{relQ.error ? (relQ.error as Error).message : "Measuring the transcript…"}</p>)}
         {lower === "risk" && tl.data && <RiskChart bins={tl.data.risk} duration={duration} chapters={tl.data.chapters} />}
         {lower === "retention" && <RetentionChart runId={runId} scenario={scenario} duration={duration}
           ack={!!userScenario} onScenario={setUserScenario} />}
@@ -159,6 +169,7 @@ export default function Review() {
           </div>
         )}
       </div>
+      {chatOpen && <ChatPanel runId={runId} onClose={() => setChatOpen(false)} />}
       <Dock active="review" runId={runId} />
     </div>
   );

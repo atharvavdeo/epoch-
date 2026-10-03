@@ -11,6 +11,7 @@ from __future__ import annotations
 import statistics
 
 from contracts.common import evidence_id
+from pipeline.reasoning.transcript_signals import announced_replay
 
 PAUSE_MIN_MS = 2000
 INTRO_MIN_MS = 20_000
@@ -212,6 +213,10 @@ class CandidateBuilder:
             run = repeated_run(e, l, self.c["seg_by_id"])
             if run is None:  # same topic, new wording: not a repetition (embedding similarity is retrieval only)
                 continue
+            first = self.c["seg_by_id"][run[0]]
+            if announced_replay(sorted(self.c["seg_by_id"].values(), key=lambda x: x["interval"]["start_ms"]),
+                                first["interval"]["start_ms"]):  # E-02: an announced replay is an example, not padding
+                continue
             n_rep += 1
             segs = [self.c["seg_by_id"][x] for x in run]
             iv = self.snap_to_sentences({"start_ms": segs[0]["interval"]["start_ms"], "end_ms": segs[-1]["interval"]["end_ms"]})
@@ -255,7 +260,9 @@ class CandidateBuilder:
                    + (f"; whole-video true peak {self.c['true_peak']} dBFS" if self.c.get("true_peak") is not None else ""))]
             self.add("technical_audio_fault", w["start_ms"], w["end_ms"], ev, [  # w also carries "fraction"
                 {"id": "O1", "operation": "adjust_audio", "interval": {"start_ms": w["start_ms"], "end_ms": w["end_ms"]},
-                 "desc": "reduce gain / apply a limiter so peaks stay below 0 dBFS"}], "clipping can be audible distortion")
+                 "desc": "reduce gain / apply a limiter so peaks stay below 0 dBFS"}],
+                "samples hit full scale; NOT verified audible (under ~0.5% is often inaudible limiter clipping) - "
+                "say so, keep severity low, and ask the reviewer to listen")
         for bl in self.c["black"][:MAX_PER_TYPE["technical_visual_fault"]]:
             a, b = bl["start_ms"], bl["end_ms"]
             if a < 1000 or b > T - 1000:

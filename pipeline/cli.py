@@ -43,6 +43,48 @@ def cmd_analyze(a: argparse.Namespace) -> int:
     return 0 if ok else 2
 
 
+AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma"}
+
+
+def wrap_audio(path):
+    """Audio-only input: mux it with a blank 2 fps picture into MKV so the same validated probe/audio stages run.
+
+    The audio stream is copied unchanged when MKV can hold it; otherwise re-encoded losslessly to FLAC.
+    """
+    import subprocess
+    from pathlib import Path
+
+    from pipeline.media.ffmpeg import ffmpeg_exe
+    from pipeline.orchestration.settings import data_dir
+
+    out = Path(data_dir()) / "transcribe_inputs" / (path.stem + ".mkv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    base = [ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x36:r=2", "-i", str(path),
+            "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "ultrafast", "-shortest"]
+    if subprocess.run(base + ["-c:a", "copy", str(out)]).returncode != 0:
+        subprocess.run(base + ["-c:a", "flac", str(out)], check=True)
+    print(f"audio-only input wrapped for the pipeline: {out}")
+    return out
+
+
+def cmd_transcribe(a: argparse.Namespace) -> int:
+    """Audio or video in, transcript out (SRT/VTT/TXT/word JSON in outputs/<video>/). Use when no subtitles exist."""
+    from pipeline.orchestration.graph import run_transcribe
+    from pipeline.orchestration.workspace import register_video
+    from pipeline.outputs import export_outputs
+    from pathlib import Path
+
+    media = Path(a.media)
+    if media.suffix.lower() in AUDIO_EXT:
+        media = wrap_audio(media)
+    ws, source = register_video(str(media), title=a.title or Path(a.media).stem, category=a.category,
+                                language=a.language, project_id=None)
+    ok = run_transcribe(ws, source, allow_out_of_scope=a.allow_out_of_scope, force=set(a.force or []))
+    out = export_outputs(ws, source)
+    print(f"transcript: {out / 'transcript.srt'}  {out / '07_transcript.txt'}" if ok else "transcription failed; see status")
+    return 0 if ok else 2
+
+
 def cmd_status(a: argparse.Namespace) -> int:
     from pipeline.orchestration.workspace import open_workspace
 
@@ -101,6 +143,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--retry-partial", action="store_true", help="re-open partial/failed stages to retry failed units")
     p.add_argument("--with-ocr", action="store_true", help="include the (slow, optional) OCR stage")
     p.set_defaults(fn=cmd_analyze)
+
+    p = sub.add_parser("transcribe", help="audio/video -> transcript only (SRT, VTT, TXT, word timings)")
+    p.add_argument("media")
+    p.add_argument("--title")
+    p.add_argument("--category", default="other", choices=["tech_review", "education", "other"])
+    p.add_argument("--language", default="unknown", choices=["en", "hi", "mixed", "unknown"])
+    p.add_argument("--force", nargs="*", help="stage names to recompute even if cached")
+    p.add_argument("--allow-out-of-scope", action="store_true", help="permit durations outside 300-900 s (labelled)")
+    p.set_defaults(fn=cmd_transcribe)
 
     p = sub.add_parser("status", help="show stage status for a workspace")
     p.add_argument("workspace", help="sha prefix or workspace path")
