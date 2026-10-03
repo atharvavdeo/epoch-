@@ -671,3 +671,12 @@ The local English video/audio/script paths have actual run evidence. Both newly 
 | `docs/FINAL_CHECKS_2026-10-03.md`, `docs/DEMO_GUIDE.md` | Latest verification evidence and presentation flow |
 
 For judges: lead with the evidence-linked editing workflow, demonstrate all three inputs using already completed runs, show the dedicated retention breakdown and a timestamp-linked finding, then explain typed Jev routing and the validator boundary. Call the percentages **scenarios**, explain APV together with AVD, and show missing coverage rather than promising unsupported accuracy.
+
+
+## Public showcase and guided walkthrough
+
+The static showcase is hosted at https://epoch-retention.pages.dev. Its compact sections carry the hero video's mist, glacier blue and mountain slate palette into the problem, pipeline, interactive demo and footer. It includes supplied playable video samples, an audio excerpt and a script example. All hosted analysis values are explicitly seeded examples. No backend or analysis API is deployed with this site.
+
+Driver.js 1.9.0 powers a 25-step hosted walkthrough. The React workspace includes 44 media-review steps, 37 script-review steps and separate tours for Projects, New analysis, Edit plan, Evaluation and Settings. Choose **Start walkthrough**. Tab switches, expandable sections, Back/Next, keyboard navigation and reduced motion are supported; missing data receives a bounded fallback. The tour never submits an analysis or Jev request.
+
+Build the static bundle with `.venvs/media/bin/python scripts/build_landing.py`, then run `wrangler pages deploy dist --project-name epoch-retention --branch main` inside `apps/landing`. Driver assets and their licence are self-hosted. The builder copies only public showcase assets and prepared media into ignored `dist`; API configuration, credentials, analysis stores and model weights are excluded.
