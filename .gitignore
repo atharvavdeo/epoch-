@@ -40,3 +40,7 @@ apps/web/dist/
 # Static showcase build and Cloudflare local state
 apps/landing/dist/
 .wrangler/
+
+# Generated public workspace samples and upload bundle
+apps/web/public/demo-data/
+epoch-cloudflare-upload.zip

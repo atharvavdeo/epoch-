@@ -1,3 +1,5 @@
+import { DEMO } from "../demo/client";
+import NewDemo from "../demo/NewDemo";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -122,7 +124,7 @@ function Processing({ jobId, onRetry }: { jobId: string; onRetry: () => void }) 
   );
 }
 
-export default function NewAnalysis() {
+function LocalNewAnalysis() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -266,3 +268,5 @@ export default function NewAnalysis() {
     </div>
   );
 }
+
+export default function NewAnalysis() { return DEMO ? <NewDemo /> : <LocalNewAnalysis />; }

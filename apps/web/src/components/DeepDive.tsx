@@ -1,3 +1,4 @@
+import { appFetch } from "../demo/client";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import type { Interval, Issue, Prediction, Promise_, Relations, Segment, Signal, Word } from "../api";
@@ -23,7 +24,7 @@ export type TimelineData = { chapters: Signal[]; markers: Signal[]; structure_sp
 
 export function useDeepDive(id: string) {
   return useQuery({ queryKey: ["deepdive", id], retry: false, queryFn: async () => {
-    const r = await fetch("/api/v1/runs/" + id + "/deepdive");
+    const r = await appFetch("/api/v1/runs/" + id + "/deepdive");
     if (!r.ok) throw new Error("Voice and audio measurements aren't available for this run.");
     return r.json() as Promise<DeepData>;
   } });
@@ -192,7 +193,7 @@ function JevChecks({ runId, data, selection, focus, duration }: { runId: string;
   const [checked, setChecked] = useState<Decision[] | null>(null);
   const check = useMutation({
     mutationFn: async () => {
-      const r = await fetch("/api/v1/runs/" + runId + "/jev-review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, selection }) });
+      const r = await appFetch("/api/v1/runs/" + runId + "/jev-review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, selection }) });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error?.message ?? body.detail ?? "The check failed");
       return body as { decisions: Decision[]; status?: string; reason?: string };

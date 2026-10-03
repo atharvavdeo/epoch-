@@ -1,3 +1,4 @@
+import { DEMO } from "../demo/client";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -46,7 +47,7 @@ function ProjectCard({ p, pred, pinned, onPin }: { p: Project; pred?: Prediction
   const jobLabel = job ? `Processing${job.stage ? ` · ${job.stage.replace(/_/g, " ")}` : ""}${typeof job.progress === "number" ? ` · ${Math.round(job.progress * 100)}%` : ""}` : null;
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = `${location.origin}${to}`;
+    const url = `${location.origin}${DEMO ? "/app" : ""}${to}`;
     navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => undefined);
   };
   return (
@@ -92,7 +93,7 @@ export default function Projects() {
   const [showFilters, setShowFilters] = useState(false);
   const [readyOnly, setReadyOnly] = useState(false);
   const [pins, setPins] = useState<string[]>(loadPins);
-  const [intro, setIntro] = useState(() => !introSeen());
+  const [intro, setIntro] = useState(() => !DEMO && !introSeen());
   const preds = useQueries({ queries: items.map((p) => ({
     queryKey: ["prediction", p.active_run_id], enabled: !!p.active_run_id, retry: false, staleTime: 600_000,
     queryFn: () => api.prediction(p.active_run_id!),

@@ -1,3 +1,4 @@
+import { DEMO } from "./demo/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -26,7 +27,8 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={qc}>
       <TopProgress />
-      <BrowserRouter>
+      <BrowserRouter basename={DEMO ? "/app" : "/"}>
+        {DEMO && <div className="hosted-demo-banner"><a href="/">← Epoch home</a><span>Public sample workspace · saved analysis · no uploads or live AI</span></div>}
         <Walkthrough />
         <Routes>
           <Route path="/" element={<Projects />} />

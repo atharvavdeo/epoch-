@@ -1,3 +1,4 @@
+import { appFetch, DEMO, demoResource } from "./demo/client";
 // Typed client for the local API (/api/v1). Shapes mirror contracts/entities.py.
 
 export type Interval = { start_ms: number; end_ms: number };
@@ -106,7 +107,7 @@ export type ChatAnswer = { answer: string; quotes: { text: string; verified: boo
   model: string; grounding: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`/api/v1${path}`, init);
+  const r = await appFetch(`/api/v1${path}`, init);
   if (!r.ok) {
     let body: { error?: { code: string; message: string; recommended_action?: string } } = {};
     try { body = await r.json(); } catch { /* non-JSON error */ }
@@ -154,14 +155,14 @@ export const api = {
   relations: (run: string) => call<Relations>(`/runs/${run}/relations`),
   chat: (run: string, b: { message: string; history: ChatMsg[]; selection: Interval | null }) =>
     call<ChatAnswer>(`/runs/${run}/chat`, json("POST", b)),
-  transcriptUrl: (run: string, f: "srt" | "vtt" | "txt") => `/api/v1/runs/${run}/transcript.${f}`,
+  transcriptUrl: (run: string, f: "srt" | "vtt" | "txt") => DEMO ? demoResource(run, "txt") : `/api/v1/runs/${run}/transcript.${f}`,
   prediction: (run: string) => call<Prediction>(`/runs/${run}/prediction`),
   repredict: (run: string, a: RepredictBody) =>
     call<Prediction>(`/runs/${run}/prediction`, json("POST", a)),
-  artifactUrl: (run: string, art: string) => `/api/v1/runs/${run}/artifacts/${art}`,
+  artifactUrl: (run: string, art: string) => DEMO ? demoResource(run, art) : `/api/v1/runs/${run}/artifacts/${art}`,
   outputs: (run: string) => call<{ items: { artifact_id: string; name: string; kind: string; bytes: number; stage: string; sha256: string }[] }>(`/runs/${run}/outputs`),
-  outputUrl: (run: string, art: string) => `/api/v1/runs/${run}/outputs/${art}`,
-  outputsZipUrl: (run: string) => `/api/v1/runs/${run}/outputs.zip`,
+  outputUrl: (run: string, art: string) => DEMO ? demoResource(run, art) : `/api/v1/runs/${run}/outputs/${art}`,
+  outputsZipUrl: (run: string) => DEMO ? demoResource(run, "zip") : `/api/v1/runs/${run}/outputs.zip`,
 };
 
 // ---- browser upload + background analysis jobs ----

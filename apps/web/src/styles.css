@@ -766,3 +766,5 @@ pre.log { max-height: 220px; overflow: auto; font-size: 12px; margin-top: 8px; }
 .tab-note { margin: 10px 0 0; }
 .reason-run { cursor: help; }
 @media (max-width: 640px) { .welcome-step h1 { font-size: 26px; } .stage { grid-template-columns: 32px 1fr auto 24px; gap: 8px; padding: 10px; } }
+
+.hosted-demo-banner{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px 24px;background:#dce8f1;color:#20394d;font:12px/1.5 sans-serif;border-bottom:1px solid #bfd2e1}.hosted-demo-banner a{font-weight:600}.demo-sample-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}.demo-sample-grid a{display:block;padding:22px;border:1px solid #bfd2e1;border-radius:16px;background:#edf3f8}.demo-sample-grid h3{margin:8px 0}.demo-sample-grid p{font-size:14px;line-height:1.6}.demo-sample-grid small{font:11px sans-serif;letter-spacing:.08em;color:#587388}@media(max-width:600px){.hosted-demo-banner{align-items:flex-start;flex-direction:column;gap:4px;padding:10px 16px}}

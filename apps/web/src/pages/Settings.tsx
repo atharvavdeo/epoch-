@@ -1,3 +1,4 @@
+import { DEMO } from "../demo/client";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
@@ -38,7 +39,7 @@ export default function Settings() {
         </div>
         <div className="card">
           <div className="section-title"><h3>Connections & storage</h3></div>
-          {!s ? <div className="skel-block"><span className="skel" style={{ width: "80%", height: 14 }} /><span className="skel" style={{ width: "60%", height: 14 }} /></div> : (
+          {DEMO ? <p className="note">This Cloudflare workspace serves public sample snapshots. Creator defaults and review choices stay in this browser. Uploads, ASR, Cerebras, Jev and other cloud services are disabled; no credentials or local storage paths are deployed. Run the open-source app locally for fresh processing.</p> : !s ? <div className="skel-block"><span className="skel" style={{ width: "80%", height: 14 }} /><span className="skel" style={{ width: "60%", height: 14 }} /></div> : (
             <div className="kv" style={{ gridTemplateColumns: "170px 1fr" }}>
               <span className="muted">Local data folder</span><span className="mono">{s.data_dir}</span>
               <span className="muted">Cerebras API</span>

@@ -16,12 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--media-root', type=Path, default=ROOT.parent / 'epoch-data' / 'inputs')
+    parser.add_argument('--workspace', action='store_true', help='Include the VITE_DEMO=true React build under /app')
     args = parser.parse_args()
     source = ROOT / 'apps' / 'landing'
     output = source / 'dist'
     media = output / 'media'
     media.mkdir(parents=True, exist_ok=True)
-    for name in ('index.html', 'styles.css', 'main.js', 'tour.js', 'tour.css', '_headers'):
+    for name in ('index.html', 'styles.css', 'main.js', 'tour.js', 'tour.css', '_headers', '_redirects'):
         shutil.copy2(source / name, output / name)
     vendor = output / 'vendor'
     vendor.mkdir(exist_ok=True)
@@ -48,6 +49,14 @@ def main():
     if not audio.exists():
         subprocess.run([ffmpeg, '-v', 'error', '-y', '-i', str(args.media_root / 've7AA01vplE.mp4'),
                         '-t', '40', '-vn', '-ac', '1', '-ar', '16000', str(audio)], check=True)
+    if args.workspace:
+        workspace = ROOT / 'apps' / 'web' / 'dist'
+        if not (workspace / 'index.html').is_file() or '/app/assets/' not in (workspace / 'index.html').read_text():
+            raise ValueError('Build apps/web with VITE_DEMO=true before including the workspace')
+        target = output / 'app'
+        if target.exists():
+            shutil.rmtree(target)  # only this generated, ignored build directory
+        shutil.copytree(workspace, target)
     files = [p for p in output.rglob('*') if p.is_file()]
     oversize = [str(p) for p in files if p.stat().st_size > 25 * 1024**2]
     if oversize:

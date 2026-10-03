@@ -680,3 +680,24 @@ The static showcase is hosted at https://epoch-retention.pages.dev. Its compact 
 Driver.js 1.9.0 powers a 25-step hosted walkthrough. The React workspace includes 44 media-review steps, 37 script-review steps and separate tours for Projects, New analysis, Edit plan, Evaluation and Settings. Choose **Start walkthrough**. Tab switches, expandable sections, Back/Next, keyboard navigation and reduced motion are supported; missing data receives a bounded fallback. The tour never submits an analysis or Jev request.
 
 Build the static bundle with `.venvs/media/bin/python scripts/build_landing.py`, then run `wrangler pages deploy dist --project-name epoch-retention --branch main` inside `apps/landing`. Driver assets and their licence are self-hosted. The builder copies only public showcase assets and prepared media into ignored `dist`; API configuration, credentials, analysis stores and model weights are excluded.
+
+
+### Full hosted workspace
+
+The complete React frontend is deployed at [epoch-retention.pages.dev/app/](https://epoch-retention.pages.dev/app/). The hero's **See how Epoch works** and **Open the workspace** buttons open it. Projects, all Review tabs/charts, Edit plan, Evaluation, Settings, source samples and Driver.js tours are included. Direct review URLs and page refreshes resolve through narrowly scoped Pages rewrites; static assets are served normally.
+
+`VITE_DEMO=true` selects a browser-only client. It serves five allowlisted public sample snapshots from `demo-data/manifest.json`, with prepared media, 178 sampled images and downloadable reports. Local review decisions persist in browser storage. The assistant uses disclosed local transcript search; Jev displays saved opinions. The new-analysis screen selects completed examples, with uploads disabled. Sensitivity recomputation interpolates log survival through the supplied anchors while preserving saved per-bin hazard ratios; it is explicitly a browser demonstration, separate from the Python predictor. Fresh cut comparisons and older-model recomputation require the local backend. No live cloud calls, credentials, private projects, local logs or model weights are deployed.
+
+Build the combined deployment:
+
+```sh
+python3 scripts/build_workspace_demo.py
+cd apps/web
+VITE_DEMO=true npm run build
+cd ../..
+.venvs/media/bin/python scripts/build_landing.py --workspace
+cd apps/landing
+wrangler pages deploy dist --project-name epoch-retention --branch main
+```
+
+The snapshot exporter requires the local API and explicitly allowlists the supplied five run IDs. Generated snapshots and build output stay outside Git. Ordinary `npm run dev` / `npm run build` keep the local API client and original upload flow.

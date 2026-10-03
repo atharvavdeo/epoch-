@@ -1,0 +1,5 @@
+/app /app/ 301
+/app/new /app/index.html 200
+/app/evaluation /app/index.html 200
+/app/settings /app/index.html 200
+/app/runs/* /app/index.html 200
